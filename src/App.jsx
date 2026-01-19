@@ -827,6 +827,29 @@ export default function App() {
     }
   };
 
+  // Helper: Project landmark for rendering (supports 2D and 3D)
+  const projectLandmark = (pt) => {
+    if (!pt) return null;
+
+    // If landmark has depth and perspective system exists, project it
+    if (pt.z !== undefined && perspectiveSystem) {
+      const vec3 = new Vec3(
+        pt.x - canvasSize.width / 2,
+        pt.y - canvasSize.height / 2,
+        pt.z
+      );
+      const projected = perspectiveSystem.project(vec3);
+      return projected.visible ? {
+        x: projected.x,
+        y: projected.y,
+        scale: projected.scale || 1
+      } : null;
+    }
+
+    // Otherwise use 2D coordinates directly
+    return { x: pt.x, y: pt.y, scale: 1 };
+  };
+
   const drawAnatomy = (ctx, w, h) => {
     const currentLandmarks = anatomyMode === 'human' ? HumanLandmarks : QuadrupedLandmarks;
     const currentSegments = anatomyMode === 'human' ? HumanLimbSegments : QuadrupedLimbSegments;
@@ -839,17 +862,21 @@ export default function App() {
     if (!hasMinimum) {
       // Just draw placed landmarks
       Object.entries(landmarks).forEach(([key, pt]) => {
+        const projected = projectLandmark(pt);
+        if (!projected) return;
+
         const cfg = currentLandmarks.find(l => l.key === key);
+        const radius = 6 * projected.scale;
         ctx.fillStyle = cfg?.color || '#fff';
         ctx.beginPath();
-        ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+        ctx.arc(projected.x, projected.y, radius, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = '#000';
         ctx.lineWidth = 2;
         ctx.stroke();
         ctx.fillStyle = '#fff';
-        ctx.font = '10px sans-serif';
-        ctx.fillText(cfg?.name || key, pt.x + 10, pt.y + 4);
+        ctx.font = `${10 * projected.scale}px sans-serif`;
+        ctx.fillText(cfg?.name || key, projected.x + 10, projected.y + 4);
       });
       return;
     }
