@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Vec3, Matrix4, PerspectiveSystem, Primitive3D, MathUtils } from './utils/math3d.js';
 import { Gizmo3D } from './utils/gizmo3d.js';
+import { getContextualTip, getRandomTip } from './systems/educational.js';
 import {
   HumanLandmarks,
   HumanLimbSegments,
@@ -85,10 +86,9 @@ export default function App() {
   const [showArmature, setShowArmature] = useState(false);
 
   // Educational
-  const [showEducationalOverlay, setShowEducationalOverlay] = useState(false);
-  const [educationalMode, setEducationalMode] = useState('scott-robertson'); // 'scott-robertson', 'loomis', 'bridgman'
-  const [showConstructionSteps, setShowConstructionSteps] = useState(false);
-  const [constructionStep, setConstructionStep] = useState(0);
+  const [showEducationalPanel, setShowEducationalPanel] = useState(true); // Show tips by default
+  const [currentTip, setCurrentTip] = useState(null);
+  const [quickTip, setQuickTip] = useState(getRandomTip());
 
   // Measurements
   const [measurements, setMeasurements] = useState([]);
@@ -114,6 +114,28 @@ export default function App() {
       gizmoRef.current.mode = manipulationMode;
     }
   }, [manipulationMode]);
+
+  // Update contextual educational tip
+  useEffect(() => {
+    const context = {
+      tool: activeTab,
+      formType: selectedForm !== null ? forms[selectedForm]?.type : formType,
+      perspectiveType: perspectiveType,
+      action: null
+    };
+
+    const tip = getContextualTip(context);
+    setCurrentTip(tip);
+  }, [activeTab, selectedForm, forms, formType, perspectiveType]);
+
+  // Rotate quick tips every 15 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setQuickTip(getRandomTip());
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Handle image upload
   const handleImageUpload = useCallback((e) => {
@@ -1233,6 +1255,13 @@ export default function App() {
       <header className="header">
         <h1 className="title">ARTIST'S 3D TOOLKIT</h1>
         <div className="header-controls">
+          <button
+            className={`btn ${showEducationalPanel ? 'btn-active' : ''}`}
+            onClick={() => setShowEducationalPanel(!showEducationalPanel)}
+            title="Toggle educational tips"
+          >
+            💡 {showEducationalPanel ? 'Hide' : 'Show'} Tips
+          </button>
           <label className="file-upload">
             <input type="file" accept="image/*" onChange={handleImageUpload} />
             Upload Image
@@ -1435,6 +1464,50 @@ export default function App() {
                 {placingForm && `Place ${formType}`}
               </div>
             )}
+
+            {/* Educational Panel */}
+            {showEducationalPanel && currentTip && (
+              <div className="educational-panel">
+                <div className="educational-header">
+                  <span>💡 {currentTip.title}</span>
+                  <button
+                    className="btn-close"
+                    onClick={() => setShowEducationalPanel(false)}
+                    title="Close tips"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="educational-content">
+                  <p className="educational-description">{currentTip.description}</p>
+                  {currentTip.tips && (
+                    <div className="educational-tips">
+                      <strong>Tips:</strong>
+                      <ul>
+                        {currentTip.tips.map((tip, i) => (
+                          <li key={i}>{tip}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {currentTip.artistReference && (
+                    <p className="educational-reference">
+                      <strong>Artist Reference:</strong> {currentTip.artistReference}
+                    </p>
+                  )}
+                  {currentTip.whenToUse && (
+                    <p className="educational-when">
+                      <strong>When to use:</strong> {currentTip.whenToUse}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Quick Tip */}
+            <div className="quick-tip">
+              💡 {quickTip}
+            </div>
           </div>
         </main>
       </div>
