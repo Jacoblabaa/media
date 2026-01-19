@@ -69,6 +69,7 @@ export default function App() {
   const [quadrupedType, setQuadrupedType] = useState(QuadrupedTypes.HORSE);
   const [landmarks, setLandmarks] = useState({});
   const [editingLandmark, setEditingLandmark] = useState(null);
+  const [landmarkDepth, setLandmarkDepth] = useState(300); // Z-depth for 3D placement
   const [showSkeleton, setShowSkeleton] = useState(true);
   const [showMasses, setShowMasses] = useState(true);
   const [showProportions, setShowProportions] = useState(true);
@@ -216,7 +217,10 @@ export default function App() {
 
     // Placing landmark
     if (editingLandmark) {
-      setLandmarks(prev => ({ ...prev, [editingLandmark]: pt }));
+      setLandmarks(prev => ({
+        ...prev,
+        [editingLandmark]: { x: pt.x, y: pt.y, z: landmarkDepth }
+      }));
       setEditingLandmark(null);
       return;
     }
