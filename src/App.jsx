@@ -231,14 +231,20 @@ export default function App() {
 
     // Placing 3D form
     if (placingForm && perspectiveSystem) {
+      // Place form at clicked position in 3D space
       const newForm = new Primitive3D(
         formType,
-        new Vec3(pt.x - canvasSize.width / 2, pt.y - canvasSize.height / 2, 200),
+        new Vec3(pt.x - canvasSize.width / 2, -(pt.y - canvasSize.height / 2), 200), // Note: flip Y for 3D
         new Vec3(0, 0, 0),
         new Vec3(1, 1, 1)
       );
       newForm.id = Date.now(); // Add ID without spreading (preserves methods)
-      setForms(prev => [...prev, newForm]);
+      console.log('Created form:', formType, 'at position:', newForm.position, 'vertices:', newForm.vertices.length);
+      setForms(prev => {
+        const updated = [...prev, newForm];
+        console.log('Forms array now has', updated.length, 'forms');
+        return updated;
+      });
       setPlacingForm(false);
       setSelectedForm(forms.length);
       return;
@@ -1632,6 +1638,52 @@ export default function App() {
                       <strong>When to use:</strong> {currentTip.whenToUse}
                     </p>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* Color Palette */}
+            {showColorPalette && colorPalette.length > 0 && (
+              <div className="color-palette">
+                <div className="color-palette-header">
+                  <span>🎨 Color Palette</span>
+                  <button
+                    className="btn-close-small"
+                    onClick={() => setShowColorPalette(false)}
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="color-swatches">
+                  {colorPalette.map((color, i) => (
+                    <div
+                      key={i}
+                      className="color-swatch"
+                      style={{ backgroundColor: color }}
+                      title={color}
+                      onClick={() => navigator.clipboard.writeText(color)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Image Analysis */}
+            {showImageAnalysis && imageAnalysis && (
+              <div className="image-analysis">
+                <div className="analysis-header">
+                  <span>🔍 Image Analysis</span>
+                  <button
+                    className="btn-close-small"
+                    onClick={() => setShowImageAnalysis(false)}
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="analysis-content">
+                  <div><strong>Contrast:</strong> {imageAnalysis.values.contrast.toFixed(0)}</div>
+                  <div><strong>Avg Value:</strong> {imageAnalysis.values.average.toFixed(0)}</div>
+                  <div><strong>Light Source:</strong> {imageAnalysis.lightSource.angle.toFixed(2)}rad</div>
                 </div>
               </div>
             )}
