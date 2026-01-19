@@ -1479,6 +1479,8 @@ export default function App() {
                 setLandmarks={setLandmarks}
                 editingLandmark={editingLandmark}
                 setEditingLandmark={setEditingLandmark}
+                landmarkDepth={landmarkDepth}
+                setLandmarkDepth={setLandmarkDepth}
                 showSkeleton={showSkeleton}
                 setShowSkeleton={setShowSkeleton}
                 showMasses={showMasses}
@@ -1850,7 +1852,7 @@ function PerspectivePanel({ perspectiveType, setPerspectiveType, editingVP, setE
   );
 }
 
-function AnatomyPanel({ anatomyMode, setAnatomyMode, quadrupedType, setQuadrupedType, landmarks, setLandmarks, editingLandmark, setEditingLandmark, showSkeleton, setShowSkeleton, showMasses, setShowMasses, showProportions, setShowProportions, showCrossSections, setShowCrossSections, showGesture, setShowGesture, gestureLine, setGestureLine, foreshortening, toggleForeshorten, setForeshortenAmount, analysisNotes, proportionSystem, setProportionSystem }) {
+function AnatomyPanel({ anatomyMode, setAnatomyMode, quadrupedType, setQuadrupedType, landmarks, setLandmarks, editingLandmark, setEditingLandmark, landmarkDepth, setLandmarkDepth, showSkeleton, setShowSkeleton, showMasses, setShowMasses, showProportions, setShowProportions, showCrossSections, setShowCrossSections, showGesture, setShowGesture, gestureLine, setGestureLine, foreshortening, toggleForeshorten, setForeshortenAmount, analysisNotes, proportionSystem, setProportionSystem }) {
   const currentLandmarks = anatomyMode === 'human' ? HumanLandmarks : QuadrupedLandmarks;
   const currentSegments = anatomyMode === 'human' ? HumanLimbSegments : QuadrupedLimbSegments;
   const availableLimbs = currentSegments.filter(seg => landmarks[seg.from] && landmarks[seg.to]);
@@ -1899,6 +1901,20 @@ function AnatomyPanel({ anatomyMode, setAnatomyMode, quadrupedType, setQuadruped
       <div className="panel-section">
         <h3>Landmarks</h3>
         <p className="hint">{anatomyMode === 'human' ? 'Start with Crown + Chin' : 'Start with Skull + Withers'}</p>
+
+        <label className="slider-label">
+          Placement Depth
+          <input
+            type="range"
+            min="100"
+            max="600"
+            step="10"
+            value={landmarkDepth}
+            onChange={e => setLandmarkDepth(parseInt(e.target.value))}
+          />
+          <span>{landmarkDepth}</span>
+        </label>
+
         <div className="landmark-grid">
           {currentLandmarks.map(lm => (
             <button
