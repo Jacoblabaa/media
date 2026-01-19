@@ -1,0 +1,1682 @@
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Vec3, Matrix4, PerspectiveSystem, Primitive3D, MathUtils } from './utils/math3d.js';
+import {
+  HumanLandmarks,
+  HumanLimbSegments,
+  QuadrupedLandmarks,
+  QuadrupedLimbSegments,
+  QuadrupedTypes,
+  AnatomyUtils
+} from './systems/anatomy.js';
+import './App.css';
+
+export default function App() {
+  const canvasRef = useRef(null);
+  const overlayRef = useRef(null);
+
+  // Canvas state
+  const [canvasSize, setCanvasSize] = useState({ width: 1200, height: 800 });
+  const [image, setImage] = useState(null);
+  const [imageData, setImageData] = useState(null);
+  const [useBlankCanvas, setUseBlankCanvas] = useState(true);
+  const [canvasColor, setCanvasColor] = useState('#2a2a2a');
+
+  // Main mode
+  const [activeTab, setActiveTab] = useState('3d-forms');
+
+  // 3D Forms
+  const [forms, setForms] = useState([]);
+  const [selectedForm, setSelectedForm] = useState(null);
+  const [formType, setFormType] = useState('cube');
+  const [placingForm, setPlacingForm] = useState(false);
+  const [manipulationMode, setManipulationMode] = useState('move'); // 'move', 'rotate', 'scale'
+  const [show3DAxes, setShow3DAxes] = useState(true);
+  const [showConstruction, setShowConstruction] = useState(true);
+
+  // Perspective
+  const [perspectiveType, setPerspectiveType] = useState('2pt');
+  const [perspectiveSystem, setPerspectiveSystem] = useState(null);
+  const [vanishingPoints, setVanishingPoints] = useState([]);
+  const [editingVP, setEditingVP] = useState(false);
+  const [draggedVP, setDraggedVP] = useState(null);
+  const [showPerspectiveGrid, setShowPerspectiveGrid] = useState(true);
+  const [gridDensity, setGridDensity] = useState(16);
+  const [horizonY, setHorizonY] = useState(400);
+  const [perspectiveLines, setPerspectiveLines] = useState([]);
+  const [drawingPerspLine, setDrawingPerspLine] = useState(null);
+
+  // Anatomy
+  const [anatomyMode, setAnatomyMode] = useState('human'); // 'human', 'quadruped'
+  const [quadrupedType, setQuadrupedType] = useState(QuadrupedTypes.HORSE);
+  const [landmarks, setLandmarks] = useState({});
+  const [editingLandmark, setEditingLandmark] = useState(null);
+  const [showSkeleton, setShowSkeleton] = useState(true);
+  const [showMasses, setShowMasses] = useState(true);
+  const [showProportions, setShowProportions] = useState(true);
+  const [showCrossSections, setShowCrossSections] = useState(false);
+  const [foreshortening, setForeshortening] = useState({});
+  const [gestureLine, setGestureLine] = useState([]);
+  const [isDrawingGesture, setIsDrawingGesture] = useState(false);
+  const [showGesture, setShowGesture] = useState(true);
+  const [proportionSystem, setProportionSystem] = useState('8-head-heroic');
+
+  // Composition
+  const [compOverlay, setCompOverlay] = useState('none');
+  const [showGoldenSpiral, setShowGoldenSpiral] = useState(false);
+  const [spiralFlip, setSpiralFlip] = useState({ h: false, v: false });
+  const [focalPoints, setFocalPoints] = useState([]);
+  const [placingFocal, setPlacingFocal] = useState(false);
+  const [showDynamicSymmetry, setShowDynamicSymmetry] = useState(false);
+  const [showArmature, setShowArmature] = useState(false);
+
+  // Educational
+  const [showEducationalOverlay, setShowEducationalOverlay] = useState(false);
+  const [educationalMode, setEducationalMode] = useState('scott-robertson'); // 'scott-robertson', 'loomis', 'bridgman'
+  const [showConstructionSteps, setShowConstructionSteps] = useState(false);
+  const [constructionStep, setConstructionStep] = useState(0);
+
+  // Measurements
+  const [measurements, setMeasurements] = useState([]);
+  const [measuring, setMeasuring] = useState(false);
+  const [currentMeasure, setCurrentMeasure] = useState(null);
+
+  // Interaction
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState(null);
+  const [analysisNotes, setAnalysisNotes] = useState([]);
+
+  // Initialize perspective system
+  useEffect(() => {
+    const ps = new PerspectiveSystem(perspectiveType, canvasSize.width, canvasSize.height);
+    ps.setHorizon(horizonY);
+    ps.setVanishingPoints(vanishingPoints);
+    setPerspectiveSystem(ps);
+  }, [perspectiveType, canvasSize, horizonY, vanishingPoints]);
+
+  // Handle image upload
+  const handleImageUpload = useCallback((e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 1200;
+        let w = img.width, h = img.height;
+        if (w > max || h > max) {
+          const scale = max / Math.max(w, h);
+          w = Math.floor(w * scale);
+          h = Math.floor(h * scale);
+        }
+        setCanvasSize({ width: w, height: h });
+        setImage(img);
+        setUseBlankCanvas(false);
+
+        // Create image data for color analysis
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = w;
+        tempCanvas.height = h;
+        const ctx = tempCanvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        setImageData(ctx.getImageData(0, 0, w, h));
+
+        // Reset everything
+        setForms([]);
+        setLandmarks({});
+        setForeshortening({});
+        setGestureLine([]);
+        setVanishingPoints([]);
+        setFocalPoints([]);
+        setMeasurements([]);
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  // Get point from mouse/touch event
+  const getPoint = useCallback((e) => {
+    const canvas = overlayRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const cx = e.touches ? e.touches[0].clientX : e.clientX;
+    const cy = e.touches ? e.touches[0].clientY : e.clientY;
+    return {
+      x: (cx - rect.left) * canvas.width / rect.width,
+      y: (cy - rect.top) * canvas.height / rect.height
+    };
+  }, []);
+
+  // Handle clicks
+  const handleClick = useCallback((e) => {
+    const pt = getPoint(e);
+
+    // Placing 3D form
+    if (placingForm && perspectiveSystem) {
+      const newForm = new Primitive3D(
+        formType,
+        new Vec3(pt.x - canvasSize.width / 2, pt.y - canvasSize.height / 2, 200),
+        new Vec3(0, 0, 0),
+        new Vec3(1, 1, 1)
+      );
+      setForms(prev => [...prev, { ...newForm, id: Date.now() }]);
+      setPlacingForm(false);
+      setSelectedForm(forms.length);
+      return;
+    }
+
+    // Placing landmark
+    if (editingLandmark) {
+      setLandmarks(prev => ({ ...prev, [editingLandmark]: pt }));
+      setEditingLandmark(null);
+      return;
+    }
+
+    // Placing vanishing point
+    if (editingVP) {
+      const colors = ['#ff5555', '#55ff55', '#5555ff', '#ffff55', '#ff55ff'];
+      setVanishingPoints(prev => [...prev, {
+        id: Date.now(),
+        ...pt,
+        color: colors[prev.length % colors.length]
+      }]);
+      setEditingVP(false);
+      return;
+    }
+
+    // Placing focal point
+    if (placingFocal) {
+      setFocalPoints(prev => [...prev, { id: Date.now(), ...pt }]);
+      setPlacingFocal(false);
+      return;
+    }
+
+    // Select form
+    if (activeTab === '3d-forms' && !placingForm) {
+      // Check if clicked on any form
+      // TODO: Implement proper hit testing
+      setSelectedForm(null);
+    }
+  }, [placingForm, formType, perspectiveSystem, canvasSize, editingLandmark, editingVP, placingFocal, forms.length, activeTab, getPoint]);
+
+  // Handle mouse down
+  const handleMouseDown = useCallback((e) => {
+    const pt = getPoint(e);
+    setDragStart(pt);
+    setIsDragging(true);
+
+    // Check if dragging VP
+    for (let i = 0; i < vanishingPoints.length; i++) {
+      if (MathUtils.distance2D(pt, vanishingPoints[i]) < 20) {
+        setDraggedVP(i);
+        return;
+      }
+    }
+
+    // Drawing gesture line
+    if (activeTab === 'anatomy' && !editingLandmark) {
+      setIsDrawingGesture(true);
+      setGestureLine([pt]);
+      return;
+    }
+
+    // Drawing perspective line
+    if (activeTab === 'perspective' && !editingVP) {
+      setDrawingPerspLine({ start: pt, end: pt });
+      return;
+    }
+
+    // Measuring
+    if (measuring) {
+      setCurrentMeasure({ start: pt, end: pt });
+      return;
+    }
+
+    // Manipulating selected form
+    if (selectedForm !== null && activeTab === '3d-forms') {
+      // Form manipulation will happen in mouse move
+    }
+  }, [activeTab, editingLandmark, editingVP, measuring, vanishingPoints, selectedForm, getPoint]);
+
+  // Handle mouse move
+  const handleMouseMove = useCallback((e) => {
+    if (!isDragging) return;
+    const pt = getPoint(e);
+
+    // Dragging VP
+    if (draggedVP !== null) {
+      setVanishingPoints(prev => prev.map((vp, i) =>
+        i === draggedVP ? { ...vp, ...pt } : vp
+      ));
+      return;
+    }
+
+    // Drawing gesture
+    if (isDrawingGesture) {
+      setGestureLine(prev => [...prev, pt]);
+      return;
+    }
+
+    // Drawing perspective line
+    if (drawingPerspLine) {
+      setDrawingPerspLine(prev => ({ ...prev, end: pt }));
+      return;
+    }
+
+    // Measuring
+    if (currentMeasure) {
+      setCurrentMeasure(prev => ({ ...prev, end: pt }));
+      return;
+    }
+
+    // Manipulating form
+    if (selectedForm !== null && dragStart) {
+      const dx = pt.x - dragStart.x;
+      const dy = pt.y - dragStart.y;
+
+      setForms(prev => prev.map((form, i) => {
+        if (i !== selectedForm) return form;
+
+        if (manipulationMode === 'move') {
+          return {
+            ...form,
+            position: new Vec3(
+              form.position.x + dx,
+              form.position.y + dy,
+              form.position.z
+            )
+          };
+        } else if (manipulationMode === 'rotate') {
+          return {
+            ...form,
+            rotation: new Vec3(
+              form.rotation.x + dy * 0.01,
+              form.rotation.y + dx * 0.01,
+              form.rotation.z
+            )
+          };
+        } else if (manipulationMode === 'scale') {
+          const scaleFactor = 1 + dy * 0.01;
+          return {
+            ...form,
+            scale: new Vec3(
+              form.scale.x * scaleFactor,
+              form.scale.y * scaleFactor,
+              form.scale.z * scaleFactor
+            )
+          };
+        }
+        return form;
+      }));
+
+      setDragStart(pt);
+    }
+  }, [isDragging, draggedVP, isDrawingGesture, drawingPerspLine, currentMeasure, selectedForm, dragStart, manipulationMode, getPoint]);
+
+  // Handle mouse up
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+    setDragStart(null);
+    setDraggedVP(null);
+    setIsDrawingGesture(false);
+
+    if (drawingPerspLine && MathUtils.distance2D(drawingPerspLine.start, drawingPerspLine.end) > 15) {
+      setPerspectiveLines(prev => [...prev, { ...drawingPerspLine, id: Date.now() }]);
+    }
+    setDrawingPerspLine(null);
+
+    if (currentMeasure && MathUtils.distance2D(currentMeasure.start, currentMeasure.end) > 10) {
+      setMeasurements(prev => [...prev, { ...currentMeasure, id: Date.now() }]);
+    }
+    setCurrentMeasure(null);
+  }, [drawingPerspLine, currentMeasure]);
+
+  // Foreshortening controls
+  const toggleForeshorten = (limbId, toward) => {
+    setForeshortening(prev => {
+      const current = prev[limbId];
+      if (current?.toward === toward) {
+        const { [limbId]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [limbId]: { toward, amount: 0.5 } };
+    });
+  };
+
+  const setForeshortenAmount = (limbId, amount) => {
+    setForeshortening(prev => ({
+      ...prev,
+      [limbId]: { ...prev[limbId], amount }
+    }));
+  };
+
+  // Main render effect
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const overlay = overlayRef.current;
+    if (!canvas || !overlay) return;
+
+    const ctx = canvas.getContext('2d');
+    const octx = overlay.getContext('2d');
+    const { width, height } = canvasSize;
+
+    // Clear
+    ctx.fillStyle = useBlankCanvas ? canvasColor : '#111';
+    ctx.fillRect(0, 0, width, height);
+    octx.clearRect(0, 0, width, height);
+
+    // Draw image if exists
+    if (image && !useBlankCanvas) {
+      ctx.drawImage(image, 0, 0, width, height);
+    }
+
+    // Draw perspective grid
+    if (showPerspectiveGrid && perspectiveSystem) {
+      drawPerspectiveGrid(octx, width, height);
+    }
+
+    // Draw 3D forms
+    if (activeTab === '3d-forms') {
+      draw3DForms(octx, width, height);
+    }
+
+    // Draw anatomy
+    if (activeTab === 'anatomy') {
+      drawAnatomy(octx, width, height);
+    }
+
+    // Draw composition overlays
+    if (activeTab === 'composition') {
+      drawComposition(octx, width, height);
+    }
+
+    // Draw perspective tools
+    if (activeTab === 'perspective') {
+      drawPerspectiveTools(octx, width, height);
+    }
+
+    // Draw measurements
+    drawMeasurements(octx, width, height);
+
+    // Draw focal points
+    focalPoints.forEach(fp => {
+      octx.strokeStyle = '#ff2266';
+      octx.lineWidth = 2;
+      octx.beginPath();
+      octx.arc(fp.x, fp.y, 25, 0, Math.PI * 2);
+      octx.stroke();
+      octx.beginPath();
+      octx.moveTo(fp.x - 30, fp.y);
+      octx.lineTo(fp.x + 30, fp.y);
+      octx.moveTo(fp.x, fp.y - 30);
+      octx.lineTo(fp.x, fp.y + 30);
+      octx.stroke();
+    });
+
+  }, [
+    canvasSize, image, useBlankCanvas, canvasColor, activeTab,
+    showPerspectiveGrid, perspectiveSystem, forms, selectedForm,
+    landmarks, foreshortening, showSkeleton, showMasses, showProportions,
+    showCrossSections, gestureLine, showGesture, compOverlay,
+    showGoldenSpiral, spiralFlip, vanishingPoints, perspectiveLines,
+    drawingPerspLine, measurements, currentMeasure, focalPoints,
+    show3DAxes, showConstruction, horizonY, gridDensity,
+    showDynamicSymmetry, showArmature, anatomyMode
+  ]);
+
+  // Drawing functions
+  const drawPerspectiveGrid = (ctx, w, h) => {
+    if (!perspectiveSystem) return;
+
+    ctx.save();
+    ctx.globalAlpha = 0.2;
+    ctx.strokeStyle = '#00ffff';
+    ctx.lineWidth = 1;
+
+    const grid = perspectiveSystem.generateGrid(100, 1500);
+    grid.forEach(line => {
+      if (line.points.length < 2) return;
+      ctx.beginPath();
+      ctx.moveTo(line.points[0].x, line.points[0].y);
+      line.points.forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.stroke();
+    });
+
+    ctx.restore();
+
+    // Draw horizon line
+    ctx.strokeStyle = 'rgba(255, 200, 0, 0.5)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([10, 5]);
+    ctx.beginPath();
+    ctx.moveTo(0, horizonY);
+    ctx.lineTo(w, horizonY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Label
+    ctx.fillStyle = 'rgba(255, 200, 0, 0.8)';
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText('HORIZON LINE', 10, horizonY - 8);
+  };
+
+  const draw3DForms = (ctx, w, h) => {
+    if (!perspectiveSystem) return;
+
+    forms.forEach((form, index) => {
+      const isSelected = index === selectedForm;
+      const transformed = form.getTransformedVertices();
+
+      // Project vertices
+      const projected = transformed.map(v => perspectiveSystem.project(v));
+
+      // Draw faces (if defined)
+      if (form.faces && form.faces.length > 0 && showConstruction) {
+        ctx.fillStyle = isSelected ? 'rgba(100, 150, 255, 0.1)' : 'rgba(150, 150, 150, 0.05)';
+        form.faces.forEach(face => {
+          ctx.beginPath();
+          ctx.moveTo(projected[face[0]].x, projected[face[0]].y);
+          for (let i = 1; i < face.length; i++) {
+            ctx.lineTo(projected[face[i]].x, projected[face[i]].y);
+          }
+          ctx.closePath();
+          ctx.fill();
+        });
+      }
+
+      // Draw edges
+      ctx.strokeStyle = isSelected ? '#00ffff' : '#ffffff';
+      ctx.lineWidth = isSelected ? 3 : 2;
+      form.edges.forEach(([i1, i2]) => {
+        const p1 = projected[i1];
+        const p2 = projected[i2];
+        if (p1.visible && p2.visible) {
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.stroke();
+        }
+      });
+
+      // Draw vertices
+      if (showConstruction) {
+        projected.forEach((p, i) => {
+          if (!p.visible) return;
+          ctx.fillStyle = isSelected ? '#ffff00' : '#ffffff';
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, isSelected ? 4 : 3, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+
+      // Draw axes if selected
+      if (isSelected && show3DAxes) {
+        const origin = perspectiveSystem.project(form.position);
+        const axisLength = 60;
+
+        // X axis (red)
+        const xEnd = perspectiveSystem.project(
+          form.position.add(new Vec3(axisLength, 0, 0))
+        );
+        ctx.strokeStyle = '#ff0000';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(origin.x, origin.y);
+        ctx.lineTo(xEnd.x, xEnd.y);
+        ctx.stroke();
+        ctx.fillStyle = '#ff0000';
+        ctx.font = 'bold 14px sans-serif';
+        ctx.fillText('X', xEnd.x + 5, xEnd.y);
+
+        // Y axis (green)
+        const yEnd = perspectiveSystem.project(
+          form.position.add(new Vec3(0, axisLength, 0))
+        );
+        ctx.strokeStyle = '#00ff00';
+        ctx.beginPath();
+        ctx.moveTo(origin.x, origin.y);
+        ctx.lineTo(yEnd.x, yEnd.y);
+        ctx.stroke();
+        ctx.fillStyle = '#00ff00';
+        ctx.fillText('Y', yEnd.x + 5, yEnd.y);
+
+        // Z axis (blue)
+        const zEnd = perspectiveSystem.project(
+          form.position.add(new Vec3(0, 0, axisLength))
+        );
+        ctx.strokeStyle = '#0000ff';
+        ctx.beginPath();
+        ctx.moveTo(origin.x, origin.y);
+        ctx.lineTo(zEnd.x, zEnd.y);
+        ctx.stroke();
+        ctx.fillStyle = '#0000ff';
+        ctx.fillText('Z', zEnd.x + 5, zEnd.y);
+      }
+    });
+  };
+
+  const drawAnatomy = (ctx, w, h) => {
+    const currentLandmarks = anatomyMode === 'human' ? HumanLandmarks : QuadrupedLandmarks;
+    const currentSegments = anatomyMode === 'human' ? HumanLimbSegments : QuadrupedLimbSegments;
+
+    // Check if we have minimum landmarks
+    const hasMinimum = anatomyMode === 'human'
+      ? (landmarks.crown && landmarks.chin)
+      : (landmarks.skull && landmarks.withers);
+
+    if (!hasMinimum) {
+      // Just draw placed landmarks
+      Object.entries(landmarks).forEach(([key, pt]) => {
+        const cfg = currentLandmarks.find(l => l.key === key);
+        ctx.fillStyle = cfg?.color || '#fff';
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.font = '10px sans-serif';
+        ctx.fillText(cfg?.name || key, pt.x + 10, pt.y + 4);
+      });
+      return;
+    }
+
+    // Calculate reference unit
+    let refUnit;
+    if (anatomyMode === 'human') {
+      refUnit = AnatomyUtils.getHeadUnit(landmarks);
+    } else {
+      refUnit = landmarks.skull && landmarks.withers
+        ? MathUtils.distance2D(landmarks.skull, landmarks.withers)
+        : 100;
+    }
+
+    // Draw proportion grid
+    if (showProportions && anatomyMode === 'human') {
+      ctx.strokeStyle = 'rgba(255, 100, 100, 0.4)';
+      ctx.setLineDash([6, 4]);
+      ctx.lineWidth = 1;
+      ctx.fillStyle = 'rgba(255, 100, 100, 0.9)';
+      ctx.font = '10px monospace';
+
+      const labels = ['0-Crown', '1-Chin', '2-Nipple', '3-Navel', '4-Crotch', '5', '6-Knee', '7', '8-Feet'];
+      for (let i = 0; i <= 8; i++) {
+        const y = landmarks.crown.y + i * refUnit;
+        if (y >= 0 && y <= h) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(w, y);
+          ctx.stroke();
+          ctx.fillText(labels[i], 5, y - 4);
+        }
+      }
+      ctx.setLineDash([]);
+    }
+
+    // Draw skeleton
+    if (showSkeleton) {
+      ctx.strokeStyle = 'rgba(0, 255, 200, 0.9)';
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+
+      if (anatomyMode === 'human') {
+        // Spine
+        const spine = [];
+        if (landmarks.crown) spine.push(landmarks.crown);
+        if (landmarks.chin) spine.push(landmarks.chin);
+        if (landmarks.c7) spine.push(landmarks.c7);
+        if (landmarks.shoulderL && landmarks.shoulderR) {
+          spine.push(AnatomyUtils.midpoint(landmarks.shoulderL, landmarks.shoulderR));
+        }
+        if (landmarks.sternumBottom) spine.push(landmarks.sternumBottom);
+        if (landmarks.hipL && landmarks.hipR) {
+          spine.push(AnatomyUtils.midpoint(landmarks.hipL, landmarks.hipR));
+        }
+
+        if (spine.length > 1) {
+          ctx.beginPath();
+          ctx.moveTo(spine[0].x, spine[0].y);
+          spine.forEach(p => ctx.lineTo(p.x, p.y));
+          ctx.stroke();
+        }
+
+        // Shoulder line
+        if (landmarks.shoulderL && landmarks.shoulderR) {
+          ctx.beginPath();
+          ctx.moveTo(landmarks.shoulderL.x, landmarks.shoulderL.y);
+          ctx.lineTo(landmarks.shoulderR.x, landmarks.shoulderR.y);
+          ctx.stroke();
+        }
+
+        // Hip line
+        if (landmarks.hipL && landmarks.hipR) {
+          ctx.beginPath();
+          ctx.moveTo(landmarks.hipL.x, landmarks.hipL.y);
+          ctx.lineTo(landmarks.hipR.x, landmarks.hipR.y);
+          ctx.stroke();
+        }
+
+        // Limbs
+        ctx.lineWidth = 2.5;
+        currentSegments.forEach(seg => {
+          if (landmarks[seg.from] && landmarks[seg.to]) {
+            ctx.beginPath();
+            ctx.moveTo(landmarks[seg.from].x, landmarks[seg.from].y);
+            ctx.lineTo(landmarks[seg.to].x, landmarks[seg.to].y);
+            ctx.stroke();
+          }
+        });
+      } else {
+        // Quadruped skeleton
+        // Spine
+        const spine = [];
+        if (landmarks.skull) spine.push(landmarks.skull);
+        if (landmarks.c1) spine.push(landmarks.c1);
+        if (landmarks.withers) spine.push(landmarks.withers);
+        if (landmarks.midBack) spine.push(landmarks.midBack);
+        if (landmarks.croup) spine.push(landmarks.croup);
+        if (landmarks.tailBase) spine.push(landmarks.tailBase);
+
+        if (spine.length > 1) {
+          ctx.beginPath();
+          ctx.moveTo(spine[0].x, spine[0].y);
+          spine.forEach(p => ctx.lineTo(p.x, p.y));
+          ctx.stroke();
+        }
+
+        // Legs
+        ctx.lineWidth = 2.5;
+        currentSegments.forEach(seg => {
+          if (landmarks[seg.from] && landmarks[seg.to]) {
+            ctx.beginPath();
+            ctx.moveTo(landmarks[seg.from].x, landmarks[seg.from].y);
+            ctx.lineTo(landmarks[seg.to].x, landmarks[seg.to].y);
+            ctx.stroke();
+          }
+        });
+      }
+    }
+
+    // Draw masses
+    if (showMasses) {
+      ctx.fillStyle = 'rgba(150, 200, 255, 0.15)';
+      ctx.strokeStyle = 'rgba(150, 200, 255, 0.7)';
+      ctx.lineWidth = 2;
+
+      // For each limb segment with both endpoints
+      currentSegments.forEach(seg => {
+        if (!landmarks[seg.from] || !landmarks[seg.to]) return;
+
+        const p1 = landmarks[seg.from];
+        const p2 = landmarks[seg.to];
+        const angle = AnatomyUtils.angle(p1, p2);
+        const perpAngle = angle + Math.PI / 2;
+        const width = refUnit * (seg.thickness || 0.2);
+        const width2 = width * 0.8;
+
+        // Draw tapered cylinder
+        const tl = { x: p1.x + Math.cos(perpAngle) * width, y: p1.y + Math.sin(perpAngle) * width };
+        const tr = { x: p1.x - Math.cos(perpAngle) * width, y: p1.y - Math.sin(perpAngle) * width };
+        const bl = { x: p2.x + Math.cos(perpAngle) * width2, y: p2.y + Math.sin(perpAngle) * width2 };
+        const br = { x: p2.x - Math.cos(perpAngle) * width2, y: p2.y - Math.sin(perpAngle) * width2 };
+
+        ctx.beginPath();
+        ctx.moveTo(tl.x, tl.y);
+        ctx.lineTo(bl.x, bl.y);
+        ctx.lineTo(br.x, br.y);
+        ctx.lineTo(tr.x, tr.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Cross-sections for foreshortening
+        if (showCrossSections && foreshortening[seg.id]) {
+          const fs = foreshortening[seg.id];
+          ctx.strokeStyle = fs.toward ? 'rgba(255,150,50,0.9)' : 'rgba(50,150,255,0.9)';
+          ctx.lineWidth = 2;
+
+          for (let i = 0; i <= 3; i++) {
+            const t = i / 3;
+            const center = {
+              x: p1.x + (p2.x - p1.x) * t,
+              y: p1.y + (p2.y - p1.y) * t
+            };
+            const currentWidth = width + (width2 - width) * t;
+            const compression = 0.3 + (1 - fs.amount) * 0.5;
+
+            ctx.save();
+            ctx.translate(center.x, center.y);
+            ctx.rotate(angle);
+            ctx.scale(1, compression);
+            ctx.beginPath();
+            ctx.arc(0, 0, currentWidth, 0, Math.PI * 2);
+            ctx.restore();
+            ctx.stroke();
+          }
+
+          // Arrow
+          const mid = AnatomyUtils.midpoint(p1, p2);
+          ctx.fillStyle = fs.toward ? '#ff9933' : '#3399ff';
+          ctx.strokeStyle = fs.toward ? '#ff9933' : '#3399ff';
+          ctx.lineWidth = 3;
+          const arrowDir = fs.toward ? angle + Math.PI : angle;
+          const arrowLen = 25;
+          const arrowEnd = {
+            x: mid.x + Math.cos(arrowDir) * arrowLen,
+            y: mid.y + Math.sin(arrowDir) * arrowLen
+          };
+
+          ctx.beginPath();
+          ctx.moveTo(mid.x, mid.y);
+          ctx.lineTo(arrowEnd.x, arrowEnd.y);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(arrowEnd.x, arrowEnd.y);
+          ctx.lineTo(arrowEnd.x - 10 * Math.cos(arrowDir - 0.4), arrowEnd.y - 10 * Math.sin(arrowDir - 0.4));
+          ctx.lineTo(arrowEnd.x - 10 * Math.cos(arrowDir + 0.4), arrowEnd.y - 10 * Math.sin(arrowDir + 0.4));
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.font = 'bold 11px sans-serif';
+          ctx.fillText(fs.toward ? 'TOWARD' : 'AWAY', mid.x + 15, mid.y - 18);
+        }
+      });
+    }
+
+    // Draw gesture line
+    if (showGesture && gestureLine.length > 1) {
+      ctx.strokeStyle = 'rgba(255, 80, 80, 0.9)';
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(gestureLine[0].x, gestureLine[0].y);
+      gestureLine.forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.stroke();
+    }
+
+    // Draw landmarks
+    Object.entries(landmarks).forEach(([key, pt]) => {
+      const cfg = currentLandmarks.find(l => l.key === key);
+      ctx.fillStyle = cfg?.color || '#fff';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.font = '10px sans-serif';
+      ctx.fillText(cfg?.name || key, pt.x + 10, pt.y + 4);
+    });
+
+    // Update analysis notes
+    const notes = AnatomyUtils.analyzeProportions(landmarks, anatomyMode);
+    setAnalysisNotes(notes);
+  };
+
+  const drawComposition = (ctx, w, h) => {
+    ctx.strokeStyle = 'rgba(255, 200, 50, 0.7)';
+    ctx.lineWidth = 1.5;
+
+    // Rule of thirds
+    if (compOverlay === 'thirds') {
+      for (let i = 1; i < 3; i++) {
+        ctx.beginPath();
+        ctx.moveTo(w * i / 3, 0);
+        ctx.lineTo(w * i / 3, h);
+        ctx.moveTo(0, h * i / 3);
+        ctx.lineTo(w, h * i / 3);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = 'rgba(255, 200, 50, 0.9)';
+      for (let i = 1; i < 3; i++) {
+        for (let j = 1; j < 3; j++) {
+          ctx.beginPath();
+          ctx.arc(w * i / 3, h * j / 3, 6, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    // Golden ratio
+    if (compOverlay === 'golden') {
+      const phi = 1.618;
+      ctx.beginPath();
+      ctx.moveTo(w / phi, 0);
+      ctx.lineTo(w / phi, h);
+      ctx.moveTo(w - w / phi, 0);
+      ctx.lineTo(w - w / phi, h);
+      ctx.moveTo(0, h / phi);
+      ctx.lineTo(w, h / phi);
+      ctx.moveTo(0, h - h / phi);
+      ctx.lineTo(w, h - h / phi);
+      ctx.stroke();
+    }
+
+    // Diagonal
+    if (compOverlay === 'diagonal') {
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(w, h);
+      ctx.moveTo(w, 0);
+      ctx.lineTo(0, h);
+      ctx.stroke();
+    }
+
+    // Golden spiral
+    if (showGoldenSpiral) {
+      ctx.strokeStyle = 'rgba(255, 215, 0, 0.8)';
+      ctx.lineWidth = 2.5;
+
+      const phi = 1.618;
+      let sw = w, sh = h;
+      let sx = spiralFlip.h ? w : 0;
+      let sy = spiralFlip.v ? h : 0;
+
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const nw = sw / phi;
+        const nh = sh / phi;
+        const base = (spiralFlip.h ? 2 : 0) + (spiralFlip.v ? 1 : 0);
+        const q = (base + i) % 4;
+
+        let cx, cy, start;
+        if (q === 0) {
+          cx = sx + sw - nw;
+          cy = sy + sh;
+          start = -Math.PI / 2;
+        } else if (q === 1) {
+          cx = sx;
+          cy = sy + sh - nh;
+          start = 0;
+        } else if (q === 2) {
+          cx = sx + nw;
+          cy = sy;
+          start = Math.PI / 2;
+        } else {
+          cx = sx + sw;
+          cy = sy + nh;
+          start = Math.PI;
+        }
+
+        ctx.arc(cx, cy, Math.min(nw, nh), start, start + Math.PI / 2);
+
+        if (q === 0) sx += sw - nw;
+        else if (q === 1) sy += sh - nh;
+
+        sw = nw;
+        sh = nh;
+      }
+      ctx.stroke();
+    }
+
+    // Dynamic symmetry
+    if (showDynamicSymmetry) {
+      ctx.strokeStyle = 'rgba(100, 255, 150, 0.5)';
+      ctx.lineWidth = 1;
+
+      // Root 2 rectangle diagonals
+      const sqrt2 = Math.sqrt(2);
+      const rw = Math.min(w, h * sqrt2);
+      const rh = rw / sqrt2;
+      const ox = (w - rw) / 2;
+      const oy = (h - rh) / 2;
+
+      ctx.beginPath();
+      ctx.moveTo(ox, oy);
+      ctx.lineTo(ox + rw, oy + rh);
+      ctx.moveTo(ox + rw, oy);
+      ctx.lineTo(ox, oy + rh);
+      ctx.stroke();
+    }
+
+    // Armature
+    if (showArmature) {
+      ctx.strokeStyle = 'rgba(255, 100, 255, 0.6)';
+      ctx.lineWidth = 1;
+
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(w, h);
+      ctx.moveTo(w, 0);
+      ctx.lineTo(0, h);
+      ctx.moveTo(w / 2, 0);
+      ctx.lineTo(w / 2, h);
+      ctx.moveTo(0, h / 2);
+      ctx.lineTo(w, h / 2);
+      ctx.stroke();
+    }
+  };
+
+  const drawPerspectiveTools = (ctx, w, h) => {
+    // Draw vanishing points
+    vanishingPoints.forEach((vp, i) => {
+      ctx.strokeStyle = vp.color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(vp.x - 20, vp.y);
+      ctx.lineTo(vp.x + 20, vp.y);
+      ctx.moveTo(vp.x, vp.y - 20);
+      ctx.lineTo(vp.x, vp.y + 20);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(vp.x, vp.y, 12, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = vp.color;
+      ctx.font = 'bold 12px monospace';
+      ctx.fillText(`VP${i + 1}`, vp.x + 18, vp.y - 15);
+
+      // Draw convergence lines if enabled
+      if (showPerspectiveGrid) {
+        ctx.strokeStyle = vp.color + '20';
+        ctx.lineWidth = 1;
+
+        for (let a = 0; a < 360; a += 360 / gridDensity) {
+          const rad = a * Math.PI / 180;
+          const len = Math.max(w, h) * 3;
+          ctx.beginPath();
+          ctx.moveTo(vp.x, vp.y);
+          ctx.lineTo(vp.x + Math.cos(rad) * len, vp.y + Math.sin(rad) * len);
+          ctx.stroke();
+        }
+      }
+    });
+
+    // Draw perspective lines
+    [...perspectiveLines, drawingPerspLine].filter(Boolean).forEach(line => {
+      const isDrawing = line === drawingPerspLine;
+      ctx.strokeStyle = isDrawing ? 'rgba(255, 255, 0, 0.9)' : 'rgba(100, 200, 255, 0.8)';
+      ctx.lineWidth = 2;
+
+      ctx.beginPath();
+      ctx.moveTo(line.start.x, line.start.y);
+      ctx.lineTo(line.end.x, line.end.y);
+      ctx.stroke();
+
+      // Extend line
+      ctx.strokeStyle = isDrawing ? 'rgba(255, 255, 0, 0.3)' : 'rgba(100, 200, 255, 0.3)';
+      const dx = line.end.x - line.start.x;
+      const dy = line.end.y - line.start.y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+
+      if (len > 0) {
+        const ext = Math.max(w, h) * 2;
+        ctx.beginPath();
+        ctx.moveTo(line.start.x - (dx / len) * ext, line.start.y - (dy / len) * ext);
+        ctx.lineTo(line.end.x + (dx / len) * ext, line.end.y + (dy / len) * ext);
+        ctx.stroke();
+      }
+    });
+  };
+
+  const drawMeasurements = (ctx, w, h) => {
+    [...measurements, currentMeasure].filter(Boolean).forEach(m => {
+      const isTemp = m === currentMeasure;
+      const dist = MathUtils.distance2D(m.start, m.end);
+      const angle = MathUtils.angle2D(m.start, m.end);
+
+      ctx.strokeStyle = isTemp ? 'rgba(255, 255, 0, 0.9)' : 'rgba(0, 255, 255, 0.9)';
+      ctx.lineWidth = 2;
+
+      ctx.beginPath();
+      ctx.moveTo(m.start.x, m.start.y);
+      ctx.lineTo(m.end.x, m.end.y);
+      ctx.stroke();
+
+      // End caps
+      const perp = angle + Math.PI / 2;
+      ctx.beginPath();
+      ctx.moveTo(m.start.x + Math.cos(perp) * 10, m.start.y + Math.sin(perp) * 10);
+      ctx.lineTo(m.start.x - Math.cos(perp) * 10, m.start.y - Math.sin(perp) * 10);
+      ctx.moveTo(m.end.x + Math.cos(perp) * 10, m.end.y + Math.sin(perp) * 10);
+      ctx.lineTo(m.end.x - Math.cos(perp) * 10, m.end.y - Math.sin(perp) * 10);
+      ctx.stroke();
+
+      if (dist > 15) {
+        ctx.fillStyle = isTemp ? '#ffff00' : '#00ffff';
+        ctx.font = 'bold 12px monospace';
+        ctx.fillText(`${Math.round(dist)}px`, (m.start.x + m.end.x) / 2 + 10, (m.start.y + m.end.y) / 2 - 8);
+      }
+    });
+  };
+
+  return (
+    <div className="app">
+      {/* Header */}
+      <header className="header">
+        <h1 className="title">ARTIST'S 3D TOOLKIT</h1>
+        <div className="header-controls">
+          <label className="file-upload">
+            <input type="file" accept="image/*" onChange={handleImageUpload} />
+            Upload Image
+          </label>
+          <button
+            className={`btn ${useBlankCanvas ? 'btn-active' : ''}`}
+            onClick={() => setUseBlankCanvas(!useBlankCanvas)}
+          >
+            {useBlankCanvas ? 'Blank Canvas' : 'Show Image'}
+          </button>
+          {useBlankCanvas && (
+            <input
+              type="color"
+              value={canvasColor}
+              onChange={(e) => setCanvasColor(e.target.value)}
+              title="Canvas Color"
+            />
+          )}
+        </div>
+      </header>
+
+      <div className="main-container">
+        {/* Sidebar */}
+        <aside className="sidebar">
+          {/* Tabs */}
+          <nav className="tabs">
+            <button
+              className={`tab ${activeTab === '3d-forms' ? 'tab-active' : ''}`}
+              onClick={() => setActiveTab('3d-forms')}
+            >
+              3D FORMS
+            </button>
+            <button
+              className={`tab ${activeTab === 'perspective' ? 'tab-active' : ''}`}
+              onClick={() => setActiveTab('perspective')}
+            >
+              PERSPECTIVE
+            </button>
+            <button
+              className={`tab ${activeTab === 'anatomy' ? 'tab-active' : ''}`}
+              onClick={() => setActiveTab('anatomy')}
+            >
+              ANATOMY
+            </button>
+            <button
+              className={`tab ${activeTab === 'composition' ? 'tab-active' : ''}`}
+              onClick={() => setActiveTab('composition')}
+            >
+              COMPOSITION
+            </button>
+            <button
+              className={`tab ${activeTab === 'measure' ? 'tab-active' : ''}`}
+              onClick={() => setActiveTab('measure')}
+            >
+              MEASURE
+            </button>
+          </nav>
+
+          {/* Tab Content */}
+          <div className="tab-content">
+            {activeTab === '3d-forms' && (
+              <Forms3DPanel
+                formType={formType}
+                setFormType={setFormType}
+                placingForm={placingForm}
+                setPlacingForm={setPlacingForm}
+                forms={forms}
+                selectedForm={selectedForm}
+                setSelectedForm={setSelectedForm}
+                setForms={setForms}
+                manipulationMode={manipulationMode}
+                setManipulationMode={setManipulationMode}
+                show3DAxes={show3DAxes}
+                setShow3DAxes={setShow3DAxes}
+                showConstruction={showConstruction}
+                setShowConstruction={setShowConstruction}
+              />
+            )}
+
+            {activeTab === 'perspective' && (
+              <PerspectivePanel
+                perspectiveType={perspectiveType}
+                setPerspectiveType={setPerspectiveType}
+                editingVP={editingVP}
+                setEditingVP={setEditingVP}
+                vanishingPoints={vanishingPoints}
+                setVanishingPoints={setVanishingPoints}
+                showPerspectiveGrid={showPerspectiveGrid}
+                setShowPerspectiveGrid={setShowPerspectiveGrid}
+                gridDensity={gridDensity}
+                setGridDensity={setGridDensity}
+                horizonY={horizonY}
+                setHorizonY={setHorizonY}
+                canvasHeight={canvasSize.height}
+                perspectiveLines={perspectiveLines}
+                setPerspectiveLines={setPerspectiveLines}
+              />
+            )}
+
+            {activeTab === 'anatomy' && (
+              <AnatomyPanel
+                anatomyMode={anatomyMode}
+                setAnatomyMode={setAnatomyMode}
+                quadrupedType={quadrupedType}
+                setQuadrupedType={setQuadrupedType}
+                landmarks={landmarks}
+                setLandmarks={setLandmarks}
+                editingLandmark={editingLandmark}
+                setEditingLandmark={setEditingLandmark}
+                showSkeleton={showSkeleton}
+                setShowSkeleton={setShowSkeleton}
+                showMasses={showMasses}
+                setShowMasses={setShowMasses}
+                showProportions={showProportions}
+                setShowProportions={setShowProportions}
+                showCrossSections={showCrossSections}
+                setShowCrossSections={setShowCrossSections}
+                showGesture={showGesture}
+                setShowGesture={setShowGesture}
+                gestureLine={gestureLine}
+                setGestureLine={setGestureLine}
+                foreshortening={foreshortening}
+                toggleForeshorten={toggleForeshorten}
+                setForeshortenAmount={setForeshortenAmount}
+                analysisNotes={analysisNotes}
+                proportionSystem={proportionSystem}
+                setProportionSystem={setProportionSystem}
+              />
+            )}
+
+            {activeTab === 'composition' && (
+              <CompositionPanel
+                compOverlay={compOverlay}
+                setCompOverlay={setCompOverlay}
+                showGoldenSpiral={showGoldenSpiral}
+                setShowGoldenSpiral={setShowGoldenSpiral}
+                spiralFlip={spiralFlip}
+                setSpiralFlip={setSpiralFlip}
+                showDynamicSymmetry={showDynamicSymmetry}
+                setShowDynamicSymmetry={setShowDynamicSymmetry}
+                showArmature={showArmature}
+                setShowArmature={setShowArmature}
+                placingFocal={placingFocal}
+                setPlacingFocal={setPlacingFocal}
+                focalPoints={focalPoints}
+                setFocalPoints={setFocalPoints}
+              />
+            )}
+
+            {activeTab === 'measure' && (
+              <MeasurePanel
+                measuring={measuring}
+                setMeasuring={setMeasuring}
+                measurements={measurements}
+                setMeasurements={setMeasurements}
+              />
+            )}
+          </div>
+        </aside>
+
+        {/* Canvas */}
+        <main className="canvas-container">
+          <div className="canvas-wrapper">
+            <canvas
+              ref={canvasRef}
+              width={canvasSize.width}
+              height={canvasSize.height}
+              className="canvas-base"
+            />
+            <canvas
+              ref={overlayRef}
+              width={canvasSize.width}
+              height={canvasSize.height}
+              className="canvas-overlay"
+              onClick={handleClick}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+            />
+            {!image && useBlankCanvas && (
+              <div className="canvas-hint">
+                <p>Blank canvas mode - start drawing!</p>
+                <p className="hint-sub">Use tools on the left to add forms, perspective, anatomy</p>
+              </div>
+            )}
+            {(editingLandmark || editingVP || placingFocal || placingForm) && (
+              <div className="canvas-status">
+                {editingLandmark && `Place: ${HumanLandmarks.find(l => l.key === editingLandmark)?.name || editingLandmark}`}
+                {editingVP && 'Click to place Vanishing Point'}
+                {placingFocal && 'Click to place Focal Point'}
+                {placingForm && `Place ${formType}`}
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+// Panel Components
+function Forms3DPanel({ formType, setFormType, placingForm, setPlacingForm, forms, selectedForm, setSelectedForm, setForms, manipulationMode, setManipulationMode, show3DAxes, setShow3DAxes, showConstruction, setShowConstruction }) {
+  const formTypes = ['cube', 'sphere', 'cylinder', 'cone', 'pyramid'];
+
+  return (
+    <div className="panel">
+      <div className="panel-section">
+        <h3>Add Form</h3>
+        <div className="form-grid">
+          {formTypes.map(type => (
+            <button
+              key={type}
+              className={`btn-form ${formType === type ? 'btn-form-active' : ''}`}
+              onClick={() => setFormType(type)}
+            >
+              {type}
+            </button>
+          ))}
+        </div>
+        <button
+          className={`btn btn-primary ${placingForm ? 'btn-active' : ''}`}
+          onClick={() => setPlacingForm(!placingForm)}
+        >
+          {placingForm ? 'Click to Place...' : `Add ${formType}`}
+        </button>
+      </div>
+
+      {selectedForm !== null && (
+        <div className="panel-section">
+          <h3>Manipulate Form {selectedForm + 1}</h3>
+          <div className="btn-group">
+            <button
+              className={`btn ${manipulationMode === 'move' ? 'btn-active' : ''}`}
+              onClick={() => setManipulationMode('move')}
+            >
+              Move
+            </button>
+            <button
+              className={`btn ${manipulationMode === 'rotate' ? 'btn-active' : ''}`}
+              onClick={() => setManipulationMode('rotate')}
+            >
+              Rotate
+            </button>
+            <button
+              className={`btn ${manipulationMode === 'scale' ? 'btn-active' : ''}`}
+              onClick={() => setManipulationMode('scale')}
+            >
+              Scale
+            </button>
+          </div>
+          <button
+            className="btn btn-danger"
+            onClick={() => {
+              setForms(prev => prev.filter((_, i) => i !== selectedForm));
+              setSelectedForm(null);
+            }}
+          >
+            Delete Form
+          </button>
+        </div>
+      )}
+
+      <div className="panel-section">
+        <h3>Display</h3>
+        <label className="checkbox">
+          <input type="checkbox" checked={show3DAxes} onChange={e => setShow3DAxes(e.target.checked)} />
+          Show 3D Axes
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={showConstruction} onChange={e => setShowConstruction(e.target.checked)} />
+          Construction Lines
+        </label>
+      </div>
+
+      {forms.length > 0 && (
+        <div className="panel-section">
+          <h3>Forms ({forms.length})</h3>
+          <div className="form-list">
+            {forms.map((form, i) => (
+              <button
+                key={i}
+                className={`btn btn-list ${selectedForm === i ? 'btn-active' : ''}`}
+                onClick={() => setSelectedForm(i === selectedForm ? null : i)}
+              >
+                {form.type} {i + 1}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PerspectivePanel({ perspectiveType, setPerspectiveType, editingVP, setEditingVP, vanishingPoints, setVanishingPoints, showPerspectiveGrid, setShowPerspectiveGrid, gridDensity, setGridDensity, horizonY, setHorizonY, canvasHeight, perspectiveLines, setPerspectiveLines }) {
+  return (
+    <div className="panel">
+      <div className="panel-section">
+        <h3>Perspective Type</h3>
+        <select value={perspectiveType} onChange={e => setPerspectiveType(e.target.value)} className="select">
+          <option value="1pt">1-Point</option>
+          <option value="2pt">2-Point</option>
+          <option value="3pt">3-Point</option>
+          <option value="4pt">4-Point</option>
+          <option value="5pt">5-Point</option>
+          <option value="fisheye">Fisheye</option>
+        </select>
+      </div>
+
+      <div className="panel-section">
+        <h3>Vanishing Points</h3>
+        <button
+          className={`btn btn-primary ${editingVP ? 'btn-active' : ''}`}
+          onClick={() => setEditingVP(!editingVP)}
+        >
+          {editingVP ? 'Click to place...' : 'Add Vanishing Point'}
+        </button>
+        {vanishingPoints.length > 0 && (
+          <div className="vp-list">
+            {vanishingPoints.map((vp, i) => (
+              <div key={vp.id} className="vp-item">
+                <span style={{ color: vp.color }}>VP{i + 1}</span>
+                <span className="vp-coords">({Math.round(vp.x)}, {Math.round(vp.y)})</span>
+              </div>
+            ))}
+            <button className="btn btn-danger btn-sm" onClick={() => setVanishingPoints([])}>Clear All</button>
+          </div>
+        )}
+      </div>
+
+      <div className="panel-section">
+        <h3>Horizon Line</h3>
+        <input
+          type="range"
+          min="0"
+          max={canvasHeight}
+          value={horizonY}
+          onChange={e => setHorizonY(+e.target.value)}
+          className="slider"
+        />
+        <span className="slider-value">{Math.round(horizonY)}px</span>
+      </div>
+
+      <div className="panel-section">
+        <h3>Grid</h3>
+        <label className="checkbox">
+          <input type="checkbox" checked={showPerspectiveGrid} onChange={e => setShowPerspectiveGrid(e.target.checked)} />
+          Show Grid
+        </label>
+        {showPerspectiveGrid && (
+          <>
+            <label className="slider-label">Density: {gridDensity}</label>
+            <input
+              type="range"
+              min="8"
+              max="32"
+              value={gridDensity}
+              onChange={e => setGridDensity(+e.target.value)}
+              className="slider"
+            />
+          </>
+        )}
+      </div>
+
+      <div className="panel-section">
+        <h3>Perspective Lines</h3>
+        <p className="hint">Drag on canvas to draw lines</p>
+        {perspectiveLines.length > 0 && (
+          <button className="btn btn-danger btn-sm" onClick={() => setPerspectiveLines([])}>
+            Clear Lines ({perspectiveLines.length})
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AnatomyPanel({ anatomyMode, setAnatomyMode, quadrupedType, setQuadrupedType, landmarks, setLandmarks, editingLandmark, setEditingLandmark, showSkeleton, setShowSkeleton, showMasses, setShowMasses, showProportions, setShowProportions, showCrossSections, setShowCrossSections, showGesture, setShowGesture, gestureLine, setGestureLine, foreshortening, toggleForeshorten, setForeshortenAmount, analysisNotes, proportionSystem, setProportionSystem }) {
+  const currentLandmarks = anatomyMode === 'human' ? HumanLandmarks : QuadrupedLandmarks;
+  const currentSegments = anatomyMode === 'human' ? HumanLimbSegments : QuadrupedLimbSegments;
+  const availableLimbs = currentSegments.filter(seg => landmarks[seg.from] && landmarks[seg.to]);
+
+  return (
+    <div className="panel">
+      <div className="panel-section">
+        <h3>Anatomy Type</h3>
+        <div className="btn-group">
+          <button
+            className={`btn ${anatomyMode === 'human' ? 'btn-active' : ''}`}
+            onClick={() => setAnatomyMode('human')}
+          >
+            Human
+          </button>
+          <button
+            className={`btn ${anatomyMode === 'quadruped' ? 'btn-active' : ''}`}
+            onClick={() => setAnatomyMode('quadruped')}
+          >
+            Animal
+          </button>
+        </div>
+        {anatomyMode === 'quadruped' && (
+          <select value={quadrupedType} onChange={e => setQuadrupedType(e.target.value)} className="select">
+            <option value={QuadrupedTypes.HORSE}>Horse</option>
+            <option value={QuadrupedTypes.DOG}>Dog</option>
+            <option value={QuadrupedTypes.CAT}>Cat</option>
+            <option value={QuadrupedTypes.DEER}>Deer</option>
+            <option value={QuadrupedTypes.LION}>Lion</option>
+          </select>
+        )}
+      </div>
+
+      {anatomyMode === 'human' && (
+        <div className="panel-section">
+          <h3>Proportions</h3>
+          <select value={proportionSystem} onChange={e => setProportionSystem(e.target.value)} className="select">
+            <option value="8-head-heroic">8 Head (Heroic)</option>
+            <option value="7.5-head-ideal">7.5 Head (Ideal)</option>
+            <option value="7-head-normal">7 Head (Normal)</option>
+            <option value="6-head-stylized">6 Head (Stylized)</option>
+          </select>
+        </div>
+      )}
+
+      <div className="panel-section">
+        <h3>Landmarks</h3>
+        <p className="hint">{anatomyMode === 'human' ? 'Start with Crown + Chin' : 'Start with Skull + Withers'}</p>
+        <div className="landmark-grid">
+          {currentLandmarks.map(lm => (
+            <button
+              key={lm.key}
+              className={`btn-landmark ${editingLandmark === lm.key ? 'btn-landmark-editing' : landmarks[lm.key] ? 'btn-landmark-placed' : ''}`}
+              style={{ borderLeftColor: lm.color }}
+              onClick={() => setEditingLandmark(editingLandmark === lm.key ? null : lm.key)}
+            >
+              {lm.name}
+            </button>
+          ))}
+        </div>
+        {Object.keys(landmarks).length > 0 && (
+          <button className="btn btn-danger btn-sm" onClick={() => setLandmarks({})}>Clear All</button>
+        )}
+      </div>
+
+      <div className="panel-section">
+        <h3>Display</h3>
+        <label className="checkbox">
+          <input type="checkbox" checked={showProportions} onChange={e => setShowProportions(e.target.checked)} />
+          Proportion Grid
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={showSkeleton} onChange={e => setShowSkeleton(e.target.checked)} />
+          Skeleton
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={showMasses} onChange={e => setShowMasses(e.target.checked)} />
+          Masses
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={showCrossSections} onChange={e => setShowCrossSections(e.target.checked)} />
+          Cross-Sections
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={showGesture} onChange={e => setShowGesture(e.target.checked)} />
+          Gesture Line
+        </label>
+        {gestureLine.length > 0 && (
+          <button className="btn btn-danger btn-sm" onClick={() => setGestureLine([])}>Clear Gesture</button>
+        )}
+      </div>
+
+      {availableLimbs.length > 0 && (
+        <div className="panel-section">
+          <h3>Foreshortening</h3>
+          <div className="foreshorten-list">
+            {availableLimbs.map(seg => {
+              const fs = foreshortening[seg.id];
+              return (
+                <div key={seg.id} className="foreshorten-item">
+                  <p className="foreshorten-name">{seg.name}</p>
+                  <div className="btn-group">
+                    <button
+                      className={`btn btn-sm ${fs?.toward === true ? 'btn-active' : ''}`}
+                      onClick={() => toggleForeshorten(seg.id, true)}
+                    >
+                      ← Toward
+                    </button>
+                    <button
+                      className={`btn btn-sm ${fs?.toward === false ? 'btn-active' : ''}`}
+                      onClick={() => toggleForeshorten(seg.id, false)}
+                    >
+                      Away →
+                    </button>
+                  </div>
+                  {fs && (
+                    <div className="foreshorten-slider">
+                      <input
+                        type="range"
+                        min="0.1"
+                        max="0.9"
+                        step="0.1"
+                        value={fs.amount}
+                        onChange={e => setForeshortenAmount(seg.id, +e.target.value)}
+                        className="slider"
+                      />
+                      <span className="slider-value">{(fs.amount * 100).toFixed(0)}%</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {analysisNotes.length > 0 && (
+        <div className="panel-section">
+          <h3>Analysis</h3>
+          <div className="analysis-notes">
+            {analysisNotes.map((note, i) => (
+              <p key={i} className={`analysis-note ${note.type}`}>
+                {note.text}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CompositionPanel({ compOverlay, setCompOverlay, showGoldenSpiral, setShowGoldenSpiral, spiralFlip, setSpiralFlip, showDynamicSymmetry, setShowDynamicSymmetry, showArmature, setShowArmature, placingFocal, setPlacingFocal, focalPoints, setFocalPoints }) {
+  return (
+    <div className="panel">
+      <div className="panel-section">
+        <h3>Grid Overlay</h3>
+        <select value={compOverlay} onChange={e => setCompOverlay(e.target.value)} className="select">
+          <option value="none">None</option>
+          <option value="thirds">Rule of Thirds</option>
+          <option value="golden">Golden Ratio</option>
+          <option value="diagonal">Diagonal</option>
+        </select>
+      </div>
+
+      <div className="panel-section">
+        <h3>Golden Spiral</h3>
+        <label className="checkbox">
+          <input type="checkbox" checked={showGoldenSpiral} onChange={e => setShowGoldenSpiral(e.target.checked)} />
+          Show Spiral
+        </label>
+        {showGoldenSpiral && (
+          <div className="spiral-controls">
+            <label className="checkbox">
+              <input type="checkbox" checked={spiralFlip.h} onChange={e => setSpiralFlip(f => ({ ...f, h: e.target.checked }))} />
+              Flip Horizontal
+            </label>
+            <label className="checkbox">
+              <input type="checkbox" checked={spiralFlip.v} onChange={e => setSpiralFlip(f => ({ ...f, v: e.target.checked }))} />
+              Flip Vertical
+            </label>
+          </div>
+        )}
+      </div>
+
+      <div className="panel-section">
+        <h3>Advanced</h3>
+        <label className="checkbox">
+          <input type="checkbox" checked={showDynamicSymmetry} onChange={e => setShowDynamicSymmetry(e.target.checked)} />
+          Dynamic Symmetry
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={showArmature} onChange={e => setShowArmature(e.target.checked)} />
+          Armature
+        </label>
+      </div>
+
+      <div className="panel-section">
+        <h3>Focal Points</h3>
+        <button
+          className={`btn btn-primary ${placingFocal ? 'btn-active' : ''}`}
+          onClick={() => setPlacingFocal(!placingFocal)}
+        >
+          {placingFocal ? 'Click to place...' : 'Add Focal Point'}
+        </button>
+        {focalPoints.length > 0 && (
+          <button className="btn btn-danger btn-sm" onClick={() => setFocalPoints([])}>
+            Clear All ({focalPoints.length})
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MeasurePanel({ measuring, setMeasuring, measurements, setMeasurements }) {
+  return (
+    <div className="panel">
+      <div className="panel-section">
+        <h3>Measurements</h3>
+        <button
+          className={`btn btn-primary ${measuring ? 'btn-active' : ''}`}
+          onClick={() => setMeasuring(!measuring)}
+        >
+          {measuring ? 'Drag to measure...' : 'Start Measuring'}
+        </button>
+        <p className="hint">Drag on canvas to measure distances</p>
+      </div>
+
+      {measurements.length > 0 && (
+        <div className="panel-section">
+          <h3>Measurements ({measurements.length})</h3>
+          <div className="measurement-list">
+            {measurements.map((m, i) => {
+              const dist = MathUtils.distance2D(m.start, m.end);
+              return (
+                <p key={m.id} className="measurement-item">
+                  Line {i + 1}: {Math.round(dist)}px
+                </p>
+              );
+            })}
+          </div>
+          <button className="btn btn-danger btn-sm" onClick={() => setMeasurements([])}>Clear All</button>
+        </div>
+      )}
+    </div>
+  );
+}
