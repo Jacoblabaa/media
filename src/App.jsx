@@ -1,9 +1,8 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Vec3, Matrix4, PerspectiveSystem, Primitive3D, MathUtils } from './utils/math3d.js';
 import { Gizmo3D } from './utils/gizmo3d.js';
 import { IntersectionDetector, DepthSorter } from './utils/intersections.js';
 import { FoundPerspective, ColorExtractor, PoseTemplates } from './systems/imageAnalysis.js';
-// Educational system removed per user request
 import {
   HumanLandmarks,
   HumanLimbSegments,
@@ -12,6 +11,10 @@ import {
   QuadrupedTypes,
   AnatomyUtils
 } from './systems/anatomy.js';
+// New professional systems
+import { PerspectiveEngine, HorizonLine, VanishingPoint } from './systems/perspective.js';
+import { Mannequin, BodyPartForms } from './systems/mannequin.js';
+import { FormRenderer, renderPerspectiveGrid } from './systems/renderer.js';
 import './App.css';
 
 export default function App() {
@@ -98,6 +101,8 @@ export default function App() {
   const [proportionSystem, setProportionSystem] = useState('8-head-heroic');
   const [autoGenerateForms, setAutoGenerateForms] = useState(true); // Auto-build forms from landmarks
   const [landmarkForms, setLandmarkForms] = useState([]); // Forms generated from landmarks
+  const [anatomyFormStyle, setAnatomyFormStyle] = useState('bridgman'); // 'basic', 'bridgman' (Bridgman/Loomis style)
+  const [showCrossContours, setShowCrossContours] = useState(false); // Show cross-contour lines on forms
 
   // Composition
   const [compOverlay, setCompOverlay] = useState('none');
@@ -122,13 +127,35 @@ export default function App() {
 
   // Initialize perspective system
   useEffect(() => {
+    if (canvasSize.width === 0 || canvasSize.height === 0) return;
+
     const ps = new PerspectiveSystem(perspectiveType, canvasSize.width, canvasSize.height);
     ps.setHorizon(horizonY);
-    ps.setVanishingPoints(vanishingPoints);
-    ps.fisheyeStrength = fisheyeStrength; // Set curvilinear distortion strength
-    ps.distanceToCanvas = cameraDistance; // Set camera distance for zoom
+
+    // Sync VPs: if React state is empty, use defaults from PerspectiveSystem
+    // If React state has VPs, use those
+    if (vanishingPoints.length === 0) {
+      // Initialize React state with default VPs from the perspective system
+      const defaultVPs = ps.vanishingPoints.map((vp, i) => ({
+        ...vp,
+        id: Date.now() + i
+      }));
+      setVanishingPoints(defaultVPs);
+    } else {
+      ps.setVanishingPoints(vanishingPoints);
+    }
+
+    ps.fisheyeStrength = fisheyeStrength;
+    ps.distanceToCanvas = cameraDistance;
     setPerspectiveSystem(ps);
-  }, [perspectiveType, canvasSize, horizonY, vanishingPoints, fisheyeStrength, cameraDistance]);
+  }, [perspectiveType, canvasSize, horizonY, fisheyeStrength, cameraDistance]);
+
+  // Keep PerspectiveSystem synced when VPs change (separate effect to avoid infinite loop)
+  useEffect(() => {
+    if (perspectiveSystem && vanishingPoints.length > 0) {
+      perspectiveSystem.setVanishingPoints(vanishingPoints);
+    }
+  }, [vanishingPoints, perspectiveSystem]);
 
   // Test cube removed - canvas starts blank as expected
 
@@ -597,6 +624,12 @@ export default function App() {
     ctx.fillRect(0, 0, width, height);
     octx.clearRect(0, 0, width, height);
 
+    // CRITICAL: Clip all drawing to canvas bounds - nothing should go off canvas
+    octx.save();
+    octx.beginPath();
+    octx.rect(0, 0, width, height);
+    octx.clip();
+
     // Draw image if exists
     if (image && !useBlankCanvas) {
       ctx.drawImage(image, 0, 0, width, height);
@@ -635,7 +668,7 @@ export default function App() {
     }
 
     // Draw composition overlays (always render if enabled)
-    if (compOverlay !== 'none' || showGoldenSpiral || focalPoints.length > 0) {
+    if (compOverlay !== 'none' || showGoldenSpiral || showDynamicSymmetry || showArmature || focalPoints.length > 0) {
       drawComposition(octx, width, height);
     }
 
@@ -662,6 +695,9 @@ export default function App() {
       octx.stroke();
     });
 
+    // Restore canvas state (end clipping region)
+    octx.restore();
+
   }, [
     canvasSize, image, useBlankCanvas, canvasColor, activeTab,
     showPerspectiveGrid, perspectiveSystem, forms, selectedForm,
@@ -671,7 +707,9 @@ export default function App() {
     drawingPerspLine, measurements, currentMeasure, focalPoints,
     show3DAxes, showConstruction, horizonY, gridDensity,
     showDynamicSymmetry, showArmature, anatomyMode, placingForm,
-    formPreviewPos, formType
+    formPreviewPos, formType, autoGenerateForms, anatomyFormData,
+    landmarkForms, cameraDistance, perspectiveType, anatomyFormStyle,
+    showCrossContours, mannequin, formRenderer
   ]);
 
   // Drawing functions
@@ -697,13 +735,14 @@ export default function App() {
 
     ctx.restore();
 
-    // Draw horizon line (curved in fisheye mode)
-    ctx.strokeStyle = 'rgba(255, 200, 0, 0.5)';
-    ctx.lineWidth = 2;
+    // Draw dynamic horizon line derived from vanishing points
+    // The horizon passes through all horizontal VPs (not static!)
+    ctx.strokeStyle = 'rgba(255, 200, 0, 0.6)';
+    ctx.lineWidth = 2.5;
     ctx.setLineDash([10, 5]);
 
     if (perspectiveType === 'fisheye') {
-      // Curved horizon line
+      // Curved horizon line for fisheye
       ctx.beginPath();
       for (let x = 0; x <= w; x += 20) {
         const projected = perspectiveSystem.project(new Vec3(x - w/2, 0, 300));
@@ -715,19 +754,35 @@ export default function App() {
       }
       ctx.stroke();
     } else {
-      // Straight horizon line
+      // Dynamic horizon from VPs - mark horizontal VPs and draw line through them
+      const horizontalVPs = vanishingPoints.filter(vp => vp.type === 'horizontal' || !vp.type);
+      const dynamicHorizon = HorizonLine.fromVanishingPoints(
+        horizontalVPs.map(vp => new VanishingPoint(vp.x, vp.y, { type: 'horizontal' })),
+        w, h
+      );
+
+      // Draw the horizon line that passes through VPs
       ctx.beginPath();
-      ctx.moveTo(0, horizonY);
-      ctx.lineTo(w, horizonY);
+      if (dynamicHorizon.points.length >= 2) {
+        ctx.moveTo(dynamicHorizon.points[0].x, dynamicHorizon.points[0].y);
+        ctx.lineTo(dynamicHorizon.points[1].x, dynamicHorizon.points[1].y);
+      } else {
+        // Fallback to static horizon
+        ctx.moveTo(0, horizonY);
+        ctx.lineTo(w, horizonY);
+      }
       ctx.stroke();
     }
 
     ctx.setLineDash([]);
 
-    // Label
-    ctx.fillStyle = 'rgba(255, 200, 0, 0.8)';
+    // Label showing dynamic behavior
+    const labelY = vanishingPoints.length > 0
+      ? Math.max(...vanishingPoints.filter(vp => !vp.type || vp.type === 'horizontal').map(vp => vp.y), horizonY) - 8
+      : horizonY - 8;
+    ctx.fillStyle = 'rgba(255, 200, 0, 0.9)';
     ctx.font = 'bold 12px monospace';
-    ctx.fillText('HORIZON LINE', 10, horizonY - 8);
+    ctx.fillText(vanishingPoints.length > 0 ? 'DYNAMIC HORIZON (through VPs)' : 'HORIZON LINE', 10, Math.max(20, Math.min(h - 20, labelY)));
   };
 
   const draw3DForms = (ctx, w, h) => {
@@ -1065,109 +1120,62 @@ export default function App() {
     return { x: pt.x, y: pt.y, scale: 1 };
   };
 
-  // Draw volumetric 3D forms between landmarks - proper perspective cylinders
+  // Create form renderer (memoized to avoid recreation)
+  const formRenderer = useMemo(() => {
+    if (!perspectiveSystem) return null;
+    const renderer = new FormRenderer(perspectiveSystem);
+    renderer.showEdges = true;
+    renderer.showFaces = true;
+    renderer.showCrossContours = showCrossContours;
+    return renderer;
+  }, [perspectiveSystem, showCrossContours]);
+
+  // Create Mannequin instance (memoized) for Bridgman-style rendering
+  const mannequinRef = useRef(null);
+  const mannequin = useMemo(() => {
+    if (!Object.keys(landmarks).length) return null;
+
+    // Calculate head size from landmarks if available
+    let headSize = 50;
+    if (landmarks.crown && landmarks.chin) {
+      const dx = landmarks.chin.x - landmarks.crown.x;
+      const dy = landmarks.chin.y - landmarks.crown.y;
+      const dz = (landmarks.chin.z || 300) - (landmarks.crown.z || 300);
+      headSize = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    const m = new Mannequin(8, { headSize: Math.max(30, headSize) });
+    m.updateFromLandmarks(landmarks);
+    mannequinRef.current = m;
+    return m;
+  }, [landmarks]);
+
+  // Draw volumetric 3D forms between landmarks using new renderer
   const drawAnatomyForms = (ctx, w, h) => {
-    if (!autoGenerateForms || anatomyFormData.length === 0 || !perspectiveSystem) return;
+    if (!autoGenerateForms || !perspectiveSystem) return;
 
-    anatomyFormData.forEach(formData => {
-      const { p1, p2, thickness1, thickness2, name } = formData;
+    const currentSegments = anatomyMode === 'human' ? HumanLimbSegments : QuadrupedLimbSegments;
 
-      // Project endpoints
-      const proj1 = perspectiveSystem.project(new Vec3(p1.x, p1.y, p1.z));
-      const proj2 = perspectiveSystem.project(new Vec3(p2.x, p2.y, p2.z));
+    // Use new FormRenderer for proper 3D rendering with lighting
+    if (formRenderer) {
+      formRenderer.showCrossContours = showCrossContours;
 
-      if (!proj1.visible || !proj2.visible) return;
-
-      // Calculate direction vector for the cylinder axis
-      const dx = proj2.x - proj1.x;
-      const dy = proj2.y - proj1.y;
-      const len = Math.sqrt(dx * dx + dy * dy);
-      if (len < 1) return;
-
-      // Perpendicular direction for width
-      const perpX = -dy / len;
-      const perpY = dx / len;
-
-      // Scale thickness by perspective
-      const scaledThickness1 = thickness1 * (proj1.scale || 1);
-      const scaledThickness2 = thickness2 * (proj2.scale || 1);
-
-      // Draw tapered cylinder as a polygon
-      ctx.beginPath();
-
-      // Generate ellipse points at each end for 3D effect
-      const segments = 8;
-
-      // Start with the outline - left side going from p1 to p2
-      for (let i = 0; i <= segments; i++) {
-        const t = i / segments;
-        // Interpolate position along cylinder
-        const x = proj1.x + dx * t;
-        const y = proj1.y + dy * t;
-        // Interpolate thickness
-        const thickness = scaledThickness1 + (scaledThickness2 - scaledThickness1) * t;
-        // Offset perpendicular
-        const offsetX = perpX * thickness;
-        const offsetY = perpY * thickness;
-
-        if (i === 0) {
-          ctx.moveTo(x + offsetX, y + offsetY);
-        } else {
-          ctx.lineTo(x + offsetX, y + offsetY);
-        }
+      if (anatomyFormStyle === 'bridgman' && mannequin && anatomyMode === 'human') {
+        // Bridgman style: render mannequin with proper anatomical forms
+        formRenderer.renderMannequin(ctx, mannequin, {
+          color: '#6699cc',
+          opacity: 0.8,
+          showConstruction: showConstruction
+        });
+      } else {
+        // Basic style: render simple limb segments
+        formRenderer.renderAnatomyFromLandmarks(ctx, landmarks, currentSegments, {
+          color: '#7799cc',
+          opacity: 0.85,
+          showEndCaps: true
+        });
       }
-
-      // Right side going back from p2 to p1
-      for (let i = segments; i >= 0; i--) {
-        const t = i / segments;
-        const x = proj1.x + dx * t;
-        const y = proj1.y + dy * t;
-        const thickness = scaledThickness1 + (scaledThickness2 - scaledThickness1) * t;
-        const offsetX = -perpX * thickness;
-        const offsetY = -perpY * thickness;
-        ctx.lineTo(x + offsetX, y + offsetY);
-      }
-
-      ctx.closePath();
-
-      // Fill with gradient for 3D effect
-      const gradient = ctx.createLinearGradient(
-        proj1.x + perpX * scaledThickness1,
-        proj1.y + perpY * scaledThickness1,
-        proj1.x - perpX * scaledThickness1,
-        proj1.y - perpY * scaledThickness1
-      );
-      gradient.addColorStop(0, 'rgba(60, 120, 180, 0.7)');
-      gradient.addColorStop(0.3, 'rgba(100, 180, 255, 0.8)');
-      gradient.addColorStop(0.5, 'rgba(150, 220, 255, 0.9)');
-      gradient.addColorStop(0.7, 'rgba(100, 180, 255, 0.8)');
-      gradient.addColorStop(1, 'rgba(40, 80, 140, 0.7)');
-
-      ctx.fillStyle = gradient;
-      ctx.fill();
-
-      // Outline
-      ctx.strokeStyle = 'rgba(0, 100, 200, 0.9)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      // Draw cross-section ellipses at ends for 3D effect
-      const drawEndCap = (cx, cy, radiusX, radiusY, angle, isFront) => {
-        ctx.beginPath();
-        ctx.ellipse(cx, cy, radiusX, Math.max(5, radiusY * 0.3), angle, 0, Math.PI * 2);
-        ctx.fillStyle = isFront ? 'rgba(150, 200, 255, 0.9)' : 'rgba(60, 100, 150, 0.7)';
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(0, 100, 200, 0.8)';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      };
-
-      // Draw end caps (ellipses rotated to face camera)
-      const angle = Math.atan2(dy, dx);
-      const isFrontEnd1 = p1.z < p2.z;
-      drawEndCap(proj1.x, proj1.y, scaledThickness1, scaledThickness1, angle + Math.PI/2, !isFrontEnd1);
-      drawEndCap(proj2.x, proj2.y, scaledThickness2, scaledThickness2, angle + Math.PI/2, isFrontEnd1);
-    });
+    }
   };
 
   const drawAnatomy = (ctx, w, h) => {
@@ -2166,6 +2174,10 @@ export default function App() {
                 setProportionSystem={setProportionSystem}
                 autoGenerateForms={autoGenerateForms}
                 setAutoGenerateForms={setAutoGenerateForms}
+                anatomyFormStyle={anatomyFormStyle}
+                setAnatomyFormStyle={setAnatomyFormStyle}
+                showCrossContours={showCrossContours}
+                setShowCrossContours={setShowCrossContours}
               />
             )}
 
@@ -2654,7 +2666,7 @@ function PerspectivePanel({ perspectiveType, setPerspectiveType, editingVP, setE
   );
 }
 
-function AnatomyPanel({ anatomyMode, setAnatomyMode, quadrupedType, setQuadrupedType, landmarks, setLandmarks, editingLandmark, setEditingLandmark, landmarkDepth, setLandmarkDepth, showSkeleton, setShowSkeleton, showMasses, setShowMasses, showProportions, setShowProportions, showCrossSections, setShowCrossSections, showGesture, setShowGesture, gestureLine, setGestureLine, foreshortening, toggleForeshorten, setForeshortenAmount, analysisNotes, proportionSystem, setProportionSystem, autoGenerateForms, setAutoGenerateForms }) {
+function AnatomyPanel({ anatomyMode, setAnatomyMode, quadrupedType, setQuadrupedType, landmarks, setLandmarks, editingLandmark, setEditingLandmark, landmarkDepth, setLandmarkDepth, showSkeleton, setShowSkeleton, showMasses, setShowMasses, showProportions, setShowProportions, showCrossSections, setShowCrossSections, showGesture, setShowGesture, gestureLine, setGestureLine, foreshortening, toggleForeshorten, setForeshortenAmount, analysisNotes, proportionSystem, setProportionSystem, autoGenerateForms, setAutoGenerateForms, anatomyFormStyle, setAnatomyFormStyle, showCrossContours, setShowCrossContours }) {
   const currentLandmarks = anatomyMode === 'human' ? HumanLandmarks : QuadrupedLandmarks;
   const currentSegments = anatomyMode === 'human' ? HumanLimbSegments : QuadrupedLimbSegments;
   const availableLimbs = currentSegments.filter(seg => landmarks[seg.from] && landmarks[seg.to]);
@@ -2794,8 +2806,38 @@ function AnatomyPanel({ anatomyMode, setAnatomyMode, quadrupedType, setQuadruped
           <input type="checkbox" checked={autoGenerateForms} onChange={e => setAutoGenerateForms(e.target.checked)} />
           Auto-Generate 3D Forms
         </label>
+
+        {autoGenerateForms && (
+          <div style={{ marginLeft: '8px', marginTop: '8px', paddingLeft: '8px', borderLeft: '2px solid rgba(100, 150, 255, 0.3)' }}>
+            <h4 style={{ fontSize: '11px', marginBottom: '6px', color: '#8899cc' }}>Form Style</h4>
+            <div className="btn-group" style={{ marginBottom: '8px' }}>
+              <button
+                className={`btn btn-sm ${anatomyFormStyle === 'basic' ? 'btn-active' : ''}`}
+                onClick={() => setAnatomyFormStyle('basic')}
+                title="Simple capsule forms"
+              >
+                Basic
+              </button>
+              <button
+                className={`btn btn-sm ${anatomyFormStyle === 'bridgman' ? 'btn-active' : ''}`}
+                onClick={() => setAnatomyFormStyle('bridgman')}
+                title="Bridgman/Loomis style anatomical forms"
+              >
+                Bridgman
+              </button>
+            </div>
+            <div style={{ fontSize: '10px', color: '#888', marginBottom: '8px' }}>
+              {anatomyFormStyle === 'basic' ? 'Simple tapered cylinders between landmarks' : 'Bridgman/Loomis style volumetric forms with proper anatomical shapes'}
+            </div>
+            <label className="checkbox">
+              <input type="checkbox" checked={showCrossContours} onChange={e => setShowCrossContours(e.target.checked)} />
+              Show Cross-Contours
+            </label>
+          </div>
+        )}
+
         <div style={{ fontSize: '11px', color: '#aaa', marginTop: '4px', marginBottom: '8px' }}>
-          Automatically builds capsule forms between connected landmarks
+          {autoGenerateForms ? 'Forms generated between connected landmarks' : 'Enable to automatically build 3D forms'}
         </div>
         {gestureLine.length > 0 && (
           <button className="btn btn-danger btn-sm" onClick={() => setGestureLine([])}>Clear Gesture</button>
