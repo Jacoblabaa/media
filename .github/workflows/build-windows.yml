@@ -1,0 +1,42 @@
+name: Build Windows Executable
+
+on:
+  push:
+    branches: [ claude/3d-artist-tool-i44rs ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build application
+        run: npm run build
+
+      - name: Build Windows executable
+        run: npm run dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v3
+        with:
+          name: Artist-3D-Toolkit-Windows-Installer
+          path: release/*.exe
+
+      - name: Upload unpacked app
+        uses: actions/upload-artifact@v3
+        with:
+          name: Artist-3D-Toolkit-Windows-Portable
+          path: release/win-unpacked/
