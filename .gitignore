@@ -33,3 +33,7 @@ pnpm-debug.log*
 
 # OS
 Thumbs.db
+
+# Electron build outputs
+release/
+dist/
