@@ -601,23 +601,23 @@ export default function App() {
       drawPerspectiveGrid(octx, width, height);
     }
 
-    // Draw 3D forms
-    if (activeTab === '3d-forms') {
+    // Draw 3D forms (always render if forms exist)
+    if (forms.length > 0) {
       draw3DForms(octx, width, height);
     }
 
-    // Draw anatomy
-    if (activeTab === 'anatomy') {
+    // Draw anatomy (always render if landmarks exist)
+    if (Object.keys(landmarks).length > 0) {
       drawAnatomy(octx, width, height);
     }
 
-    // Draw composition overlays
-    if (activeTab === 'composition') {
+    // Draw composition overlays (always render if enabled)
+    if (compOverlay !== 'none' || showGoldenSpiral || focalPoints.length > 0) {
       drawComposition(octx, width, height);
     }
 
-    // Draw perspective tools
-    if (activeTab === 'perspective') {
+    // Draw perspective tools (always render VPs, lines, etc.)
+    if (vanishingPoints.length > 0 || perspectiveLines.length > 0 || drawingPerspLine) {
       drawPerspectiveTools(octx, width, height);
     }
 
@@ -659,7 +659,10 @@ export default function App() {
     ctx.strokeStyle = '#00ffff';
     ctx.lineWidth = 1;
 
-    const grid = perspectiveSystem.generateGrid(100, 1500);
+    // For fisheye mode, use finer grid for visible curvature
+    const spacing = perspectiveType === 'fisheye' ? 50 : 100;
+    const grid = perspectiveSystem.generateGrid(spacing, 1500);
+
     grid.forEach(line => {
       if (line.points.length < 2) return;
       ctx.beginPath();
@@ -670,14 +673,31 @@ export default function App() {
 
     ctx.restore();
 
-    // Draw horizon line
+    // Draw horizon line (curved in fisheye mode)
     ctx.strokeStyle = 'rgba(255, 200, 0, 0.5)';
     ctx.lineWidth = 2;
     ctx.setLineDash([10, 5]);
-    ctx.beginPath();
-    ctx.moveTo(0, horizonY);
-    ctx.lineTo(w, horizonY);
-    ctx.stroke();
+
+    if (perspectiveType === 'fisheye') {
+      // Curved horizon line
+      ctx.beginPath();
+      for (let x = 0; x <= w; x += 20) {
+        const projected = perspectiveSystem.project(new Vec3(x - w/2, 0, 300));
+        if (x === 0) {
+          ctx.moveTo(projected.x, projected.y);
+        } else {
+          ctx.lineTo(projected.x, projected.y);
+        }
+      }
+      ctx.stroke();
+    } else {
+      // Straight horizon line
+      ctx.beginPath();
+      ctx.moveTo(0, horizonY);
+      ctx.lineTo(w, horizonY);
+      ctx.stroke();
+    }
+
     ctx.setLineDash([]);
 
     // Label
@@ -1378,6 +1398,224 @@ export default function App() {
         sh = nh;
       }
       ctx.stroke();
+    }
+
+    // Visual weight analyzer
+    if (compOverlay === 'weight') {
+      // Analyze visual weight based on forms and landmarks
+      const weights = [];
+
+      // Forms contribute weight based on size and position
+      forms.forEach((form, i) => {
+        if (!perspectiveSystem) return;
+        const projected = perspectiveSystem.project(form.position);
+        if (projected.visible) {
+          const size = form.scale.x * form.scale.y * form.scale.z;
+          weights.push({
+            x: projected.x,
+            y: projected.y,
+            weight: size * 20,
+            label: `F${i+1}`
+          });
+        }
+      });
+
+      // Landmarks contribute weight
+      Object.entries(landmarks).forEach(([key, pt]) => {
+        weights.push({
+          x: pt.x,
+          y: pt.y,
+          weight: 15,
+          label: key.slice(0, 3)
+        });
+      });
+
+      // Draw weight visualization
+      weights.forEach(w => {
+        const radius = Math.sqrt(w.weight) * 3;
+        ctx.fillStyle = `rgba(255, 100, 100, ${Math.min(0.3, w.weight / 100)})`;
+        ctx.beginPath();
+        ctx.arc(w.x, w.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(255, 100, 100, 0.8)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+
+      // Calculate center of weight
+      if (weights.length > 0) {
+        const totalWeight = weights.reduce((sum, w) => sum + w.weight, 0);
+        const centerX = weights.reduce((sum, w) => sum + w.x * w.weight, 0) / totalWeight;
+        const centerY = weights.reduce((sum, w) => sum + w.y * w.weight, 0) / totalWeight;
+
+        // Draw center of visual weight
+        ctx.strokeStyle = '#ff0000';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(centerX - 20, centerY);
+        ctx.lineTo(centerX + 20, centerY);
+        ctx.moveTo(centerX, centerY - 20);
+        ctx.lineTo(centerX, centerY + 20);
+        ctx.stroke();
+
+        ctx.fillStyle = '#ff0000';
+        ctx.font = 'bold 11px monospace';
+        ctx.fillText('CENTER OF WEIGHT', centerX + 25, centerY + 4);
+      }
+    }
+
+    // Balance analyzer
+    if (compOverlay === 'balance') {
+      // Calculate balance line (vertical center of mass)
+      const weights = [];
+      forms.forEach(form => {
+        if (!perspectiveSystem) return;
+        const projected = perspectiveSystem.project(form.position);
+        if (projected.visible) {
+          const size = form.scale.x * form.scale.y * form.scale.z;
+          weights.push({ x: projected.x, weight: size * 20 });
+        }
+      });
+
+      Object.values(landmarks).forEach(pt => {
+        weights.push({ x: pt.x, weight: 15 });
+      });
+
+      if (weights.length > 0) {
+        const totalWeight = weights.reduce((sum, w) => sum + w.weight, 0);
+        const balanceX = weights.reduce((sum, w) => sum + w.x * w.weight, 0) / totalWeight;
+
+        // Draw balance line
+        ctx.strokeStyle = '#00ff00';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([10, 5]);
+        ctx.beginPath();
+        ctx.moveTo(balanceX, 0);
+        ctx.lineTo(balanceX, h);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Show offset from center
+        const offset = balanceX - w/2;
+        const offsetPercent = (offset / w * 100).toFixed(1);
+        ctx.fillStyle = '#00ff00';
+        ctx.font = 'bold 12px monospace';
+        ctx.fillText(`BALANCE: ${offsetPercent}% ${offset > 0 ? 'RIGHT' : 'LEFT'}`, 10, 30);
+
+        // Draw canvas center for comparison
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(w/2, 0);
+        ctx.lineTo(w/2, h);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    // Flow analyzer (directional movement)
+    if (compOverlay === 'flow') {
+      // Analyze directional flow from gesture lines and form arrangements
+      ctx.strokeStyle = 'rgba(100, 150, 255, 0.8)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+
+      // Draw gesture line flow
+      if (gestureLine.length > 1) {
+        ctx.strokeStyle = 'rgba(255, 100, 255, 0.9)';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(gestureLine[0].x, gestureLine[0].y);
+        gestureLine.forEach(pt => ctx.lineTo(pt.x, pt.y));
+        ctx.stroke();
+
+        // Draw flow arrows
+        for (let i = 0; i < gestureLine.length - 1; i += 10) {
+          const p1 = gestureLine[i];
+          const p2 = gestureLine[Math.min(i + 10, gestureLine.length - 1)];
+          const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+          const arrowX = p2.x;
+          const arrowY = p2.y;
+          const arrowSize = 15;
+
+          ctx.fillStyle = 'rgba(255, 100, 255, 0.9)';
+          ctx.beginPath();
+          ctx.moveTo(arrowX, arrowY);
+          ctx.lineTo(
+            arrowX - arrowSize * Math.cos(angle - Math.PI / 6),
+            arrowY - arrowSize * Math.sin(angle - Math.PI / 6)
+          );
+          ctx.lineTo(
+            arrowX - arrowSize * Math.cos(angle + Math.PI / 6),
+            arrowY - arrowSize * Math.sin(angle + Math.PI / 6)
+          );
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+
+      // Analyze form arrangement flow
+      if (forms.length > 1 && perspectiveSystem) {
+        const centers = forms.map(f => perspectiveSystem.project(f.position))
+          .filter(p => p.visible);
+
+        if (centers.length > 1) {
+          // Find general flow direction
+          const avgDx = centers.slice(1).reduce((sum, p, i) => sum + (p.x - centers[i].x), 0) / (centers.length - 1);
+          const avgDy = centers.slice(1).reduce((sum, p, i) => sum + (p.y - centers[i].y), 0) / (centers.length - 1);
+          const flowAngle = Math.atan2(avgDy, avgDx);
+
+          ctx.strokeStyle = 'rgba(100, 200, 255, 0.6)';
+          ctx.lineWidth = 3;
+          centers.forEach((c, i) => {
+            if (i > 0) {
+              ctx.beginPath();
+              ctx.moveTo(centers[i-1].x, centers[i-1].y);
+              ctx.lineTo(c.x, c.y);
+              ctx.stroke();
+            }
+          });
+
+          // Draw flow direction indicator
+          const centerX = centers.reduce((sum, p) => sum + p.x, 0) / centers.length;
+          const centerY = centers.reduce((sum, p) => sum + p.y, 0) / centers.length;
+          const flowLength = 80;
+
+          ctx.strokeStyle = 'rgba(100, 200, 255, 1.0)';
+          ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.moveTo(centerX, centerY);
+          ctx.lineTo(
+            centerX + flowLength * Math.cos(flowAngle),
+            centerY + flowLength * Math.sin(flowAngle)
+          );
+          ctx.stroke();
+
+          // Arrow head
+          const arrowX = centerX + flowLength * Math.cos(flowAngle);
+          const arrowY = centerY + flowLength * Math.sin(flowAngle);
+          ctx.fillStyle = 'rgba(100, 200, 255, 1.0)';
+          ctx.beginPath();
+          ctx.moveTo(arrowX, arrowY);
+          ctx.lineTo(
+            arrowX - 15 * Math.cos(flowAngle - Math.PI / 6),
+            arrowY - 15 * Math.sin(flowAngle - Math.PI / 6)
+          );
+          ctx.lineTo(
+            arrowX - 15 * Math.cos(flowAngle + Math.PI / 6),
+            arrowY - 15 * Math.sin(flowAngle + Math.PI / 6)
+          );
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = '#66ccff';
+          ctx.font = 'bold 12px monospace';
+          const flowDegrees = ((flowAngle * 180 / Math.PI + 360) % 360).toFixed(0);
+          ctx.fillText(`FLOW: ${flowDegrees}°`, 10, 30);
+        }
+      }
     }
 
     // Dynamic symmetry
@@ -2377,13 +2615,31 @@ function CompositionPanel({ compOverlay, setCompOverlay, showGoldenSpiral, setSh
   return (
     <div className="panel">
       <div className="panel-section">
-        <h3>Grid Overlay</h3>
+        <h3>Composition Overlay</h3>
         <select value={compOverlay} onChange={e => setCompOverlay(e.target.value)} className="select">
           <option value="none">None</option>
           <option value="thirds">Rule of Thirds</option>
           <option value="golden">Golden Ratio</option>
           <option value="diagonal">Diagonal</option>
+          <option value="weight">Visual Weight</option>
+          <option value="balance">Balance Analyzer</option>
+          <option value="flow">Flow & Movement</option>
         </select>
+        {compOverlay === 'weight' && (
+          <p style={{ fontSize: '11px', color: '#888', marginTop: '6px' }}>
+            Shows visual weight distribution and center of gravity
+          </p>
+        )}
+        {compOverlay === 'balance' && (
+          <p style={{ fontSize: '11px', color: '#888', marginTop: '6px' }}>
+            Displays left/right balance line and offset percentage
+          </p>
+        )}
+        {compOverlay === 'flow' && (
+          <p style={{ fontSize: '11px', color: '#888', marginTop: '6px' }}>
+            Analyzes directional movement and gesture flow
+          </p>
+        )}
       </div>
 
       <div className="panel-section">
