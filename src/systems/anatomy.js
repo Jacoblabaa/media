@@ -50,26 +50,37 @@ export const HumanLandmarks = [
 ];
 
 export const HumanLimbSegments = [
+  // Head
+  { id: 'head', from: 'crown', to: 'chin', name: 'Head', idealHeads: 1, thickness: 0.35 },
+
+  // Neck and Shoulders
+  { id: 'neck', from: 'chin', to: 'c7', name: 'Neck', idealHeads: 0.3, thickness: 0.18 },
+  { id: 'clavicleL', from: 'c7', to: 'shoulderL', name: 'Clavicle L', idealHeads: 0.5, thickness: 0.12 },
+  { id: 'clavicleR', from: 'c7', to: 'shoulderR', name: 'Clavicle R', idealHeads: 0.5, thickness: 0.12 },
+
   // Arms
-  { id: 'upperArmL', from: 'shoulderL', to: 'elbowL', name: 'Upper Arm L', idealHeads: 1.3, thickness: 0.2 },
-  { id: 'upperArmR', from: 'shoulderR', to: 'elbowR', name: 'Upper Arm R', idealHeads: 1.3, thickness: 0.2 },
-  { id: 'forearmL', from: 'elbowL', to: 'wristL', name: 'Forearm L', idealHeads: 1.2, thickness: 0.17 },
-  { id: 'forearmR', from: 'elbowR', to: 'wristR', name: 'Forearm R', idealHeads: 1.2, thickness: 0.17 },
-  { id: 'handL', from: 'wristL', to: 'handL', name: 'Hand L', idealHeads: 0.75, thickness: 0.1 },
-  { id: 'handR', from: 'wristR', to: 'handR', name: 'Hand R', idealHeads: 0.75, thickness: 0.1 },
+  { id: 'upperArmL', from: 'shoulderL', to: 'elbowL', name: 'Upper Arm L', idealHeads: 1.3, thickness: 0.22 },
+  { id: 'upperArmR', from: 'shoulderR', to: 'elbowR', name: 'Upper Arm R', idealHeads: 1.3, thickness: 0.22 },
+  { id: 'forearmL', from: 'elbowL', to: 'wristL', name: 'Forearm L', idealHeads: 1.2, thickness: 0.18 },
+  { id: 'forearmR', from: 'elbowR', to: 'wristR', name: 'Forearm R', idealHeads: 1.2, thickness: 0.18 },
+  { id: 'handL', from: 'wristL', to: 'handL', name: 'Hand L', idealHeads: 0.75, thickness: 0.12 },
+  { id: 'handR', from: 'wristR', to: 'handR', name: 'Hand R', idealHeads: 0.75, thickness: 0.12 },
+
+  // Torso - Rib cage and Pelvis
+  { id: 'torsoUpper', from: 'c7', to: 'sternumBottom', name: 'Rib Cage', idealHeads: 1.2, thickness: 0.45 },
+  { id: 'torsoLower', from: 'sternumBottom', to: 'crotch', name: 'Abdomen', idealHeads: 1.5, thickness: 0.38 },
+
+  // Pelvis connections
+  { id: 'pelvisL', from: 'crotch', to: 'hipL', name: 'Pelvis L', idealHeads: 0.3, thickness: 0.25 },
+  { id: 'pelvisR', from: 'crotch', to: 'hipR', name: 'Pelvis R', idealHeads: 0.3, thickness: 0.25 },
 
   // Legs
-  { id: 'thighL', from: 'hipL', to: 'kneeL', name: 'Thigh L', idealHeads: 2, thickness: 0.26 },
-  { id: 'thighR', from: 'hipR', to: 'kneeR', name: 'Thigh R', idealHeads: 2, thickness: 0.26 },
-  { id: 'shinL', from: 'kneeL', to: 'ankleL', name: 'Shin L', idealHeads: 1.8, thickness: 0.18 },
-  { id: 'shinR', from: 'kneeR', to: 'ankleR', name: 'Shin R', idealHeads: 1.8, thickness: 0.18 },
-  { id: 'footL', from: 'ankleL', to: 'footL', name: 'Foot L', idealHeads: 0.5, thickness: 0.12 },
-  { id: 'footR', from: 'ankleR', to: 'footR', name: 'Foot R', idealHeads: 0.5, thickness: 0.12 },
-
-  // Torso
-  { id: 'neck', from: 'chin', to: 'c7', name: 'Neck', idealHeads: 0.3, thickness: 0.15 },
-  { id: 'torsoUpper', from: 'c7', to: 'sternumBottom', name: 'Rib Cage', idealHeads: 1.2, thickness: 0.4 },
-  { id: 'torsoLower', from: 'sternumBottom', to: 'crotch', name: 'Abdomen', idealHeads: 1.5, thickness: 0.35 },
+  { id: 'thighL', from: 'hipL', to: 'kneeL', name: 'Thigh L', idealHeads: 2, thickness: 0.28 },
+  { id: 'thighR', from: 'hipR', to: 'kneeR', name: 'Thigh R', idealHeads: 2, thickness: 0.28 },
+  { id: 'shinL', from: 'kneeL', to: 'ankleL', name: 'Shin L', idealHeads: 1.8, thickness: 0.20 },
+  { id: 'shinR', from: 'kneeR', to: 'ankleR', name: 'Shin R', idealHeads: 1.8, thickness: 0.20 },
+  { id: 'footL', from: 'ankleL', to: 'footL', name: 'Foot L', idealHeads: 0.5, thickness: 0.14 },
+  { id: 'footR', from: 'ankleR', to: 'footR', name: 'Foot R', idealHeads: 0.5, thickness: 0.14 },
 ];
 
 /**

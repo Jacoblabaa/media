@@ -292,63 +292,99 @@ export const PoseTemplates = {
       name: 'T-Pose (Neutral)',
       landmarks: {
         // Y coordinates: positive = UP on screen, negative = DOWN
+        // Head
         crown: { x: 0, y: 200, z: 300 },
         chin: { x: 0, y: 140, z: 300 },
+        // Neck/Shoulders
         c7: { x: 0, y: 120, z: 300 },
         shoulderL: { x: -80, y: 100, z: 300 },
         shoulderR: { x: 80, y: 100, z: 300 },
+        // Arms
         elbowL: { x: -180, y: 100, z: 300 },
         elbowR: { x: 180, y: 100, z: 300 },
         wristL: { x: -260, y: 100, z: 300 },
         wristR: { x: 260, y: 100, z: 300 },
+        handL: { x: -300, y: 100, z: 300 },
+        handR: { x: 300, y: 100, z: 300 },
+        // Torso
+        sternumBottom: { x: 0, y: 20, z: 300 },
+        crotch: { x: 0, y: -30, z: 300 },
+        // Hips
         hipL: { x: -40, y: -40, z: 300 },
         hipR: { x: 40, y: -40, z: 300 },
+        // Legs
         kneeL: { x: -40, y: -160, z: 300 },
         kneeR: { x: 40, y: -160, z: 300 },
         ankleL: { x: -40, y: -280, z: 300 },
-        ankleR: { x: 40, y: -280, z: 300 }
+        ankleR: { x: 40, y: -280, z: 300 },
+        footL: { x: -40, y: -310, z: 320 },
+        footR: { x: 40, y: -310, z: 320 }
       }
     },
     actionPose: {
       name: 'Action (Running)',
       landmarks: {
         // Y coordinates: positive = UP on screen, negative = DOWN
+        // Head
         crown: { x: 20, y: 180, z: 300 },
         chin: { x: 20, y: 120, z: 300 },
+        // Neck/Shoulders
         c7: { x: 15, y: 100, z: 300 },
         shoulderL: { x: -50, y: 90, z: 320 },
         shoulderR: { x: 80, y: 85, z: 280 },
+        // Arms
         elbowL: { x: -90, y: 40, z: 340 },
         elbowR: { x: 140, y: 120, z: 260 },
         wristL: { x: -100, y: -10, z: 350 },
         wristR: { x: 180, y: 160, z: 240 },
+        handL: { x: -95, y: -50, z: 355 },
+        handR: { x: 195, y: 190, z: 235 },
+        // Torso
+        sternumBottom: { x: 10, y: 10, z: 300 },
+        crotch: { x: 10, y: -40, z: 300 },
+        // Hips
         hipL: { x: -30, y: -50, z: 310 },
         hipR: { x: 50, y: -45, z: 290 },
+        // Legs
         kneeL: { x: -20, y: -120, z: 340 },
         kneeR: { x: 80, y: -180, z: 260 },
         ankleL: { x: -10, y: -200, z: 360 },
-        ankleR: { x: 90, y: -290, z: 250 }
+        ankleR: { x: 90, y: -290, z: 250 },
+        footL: { x: 20, y: -220, z: 380 },
+        footR: { x: 100, y: -320, z: 270 }
       }
     },
     contrapposto: {
       name: 'Contrapposto (Classical)',
       landmarks: {
         // Y coordinates: positive = UP on screen, negative = DOWN
+        // Head
         crown: { x: 0, y: 200, z: 300 },
         chin: { x: 5, y: 140, z: 300 },
+        // Neck/Shoulders
         c7: { x: 0, y: 120, z: 300 },
         shoulderL: { x: -70, y: 105, z: 300 },
         shoulderR: { x: 75, y: 95, z: 300 },
+        // Arms
         elbowL: { x: -90, y: 20, z: 310 },
         elbowR: { x: 120, y: 10, z: 290 },
         wristL: { x: -70, y: -60, z: 320 },
         wristR: { x: 150, y: -70, z: 280 },
+        handL: { x: -60, y: -95, z: 325 },
+        handR: { x: 165, y: -100, z: 275 },
+        // Torso
+        sternumBottom: { x: 0, y: 20, z: 300 },
+        crotch: { x: -5, y: -35, z: 300 },
+        // Hips
         hipL: { x: -50, y: -40, z: 300 },
         hipR: { x: 35, y: -50, z: 300 },
+        // Legs
         kneeL: { x: -45, y: -170, z: 300 },
         kneeR: { x: 25, y: -160, z: 300 },
         ankleL: { x: -40, y: -290, z: 300 },
-        ankleR: { x: 30, y: -280, z: 300 }
+        ankleR: { x: 30, y: -280, z: 300 },
+        footL: { x: -35, y: -320, z: 320 },
+        footR: { x: 35, y: -310, z: 320 }
       }
     }
   }

@@ -542,56 +542,44 @@ export default function App() {
     setCameraDistance(prev => Math.max(100, Math.min(2000, prev + delta)));
   }, []);
 
-  // Generate forms from landmark connections
+  // Generate volumetric forms from landmark connections
+  // Stores form data for rendering (not Primitive3D objects - we render these specially)
+  const [anatomyFormData, setAnatomyFormData] = useState([]);
+
   useEffect(() => {
     if (!autoGenerateForms || Object.keys(landmarks).length < 2) {
       setLandmarkForms([]);
+      setAnatomyFormData([]);
       return;
     }
 
     const currentSegments = anatomyMode === 'human' ? HumanLimbSegments : QuadrupedLimbSegments;
-    const generatedForms = [];
+    const generatedFormData = [];
 
+    // Generate forms for predefined segments
     currentSegments.forEach(seg => {
       const p1 = landmarks[seg.from];
       const p2 = landmarks[seg.to];
 
       if (p1 && p2) {
-        // Calculate position (midpoint) and scale based on segment
-        const midpoint = new Vec3(
-          (p1.x + p2.x) / 2,
-          (p1.y + p2.y) / 2,
-          (p1.z + p2.z) / 2
-        );
-
-        // Calculate distance for length
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
-        const dz = p2.z - p1.z;
-        const length = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-        // Calculate rotation to align with segment direction
-        const angleY = Math.atan2(dx, dz);
-        const angleX = Math.atan2(-dy, Math.sqrt(dx * dx + dz * dz));
-
-        // Create capsule form for this segment
-        const form = new Primitive3D(
-          'capsule',
-          midpoint,
-          new Vec3(angleX, angleY, 0),
-          new Vec3(
-            (seg.thickness || 0.2) * 40, // Width
-            length / 2, // Height (capsule is vertical, so this stretches it)
-            (seg.thickness || 0.2) * 40  // Depth
-          )
-        );
-        form.id = `landmark-form-${seg.id}`;
-        form.landmarkSegment = seg.id;
-        generatedForms.push(form);
+        // Store form data for custom volumetric rendering
+        const thickness = (seg.thickness || 0.25) * 100; // Much larger base thickness
+        generatedFormData.push({
+          id: seg.id,
+          name: seg.name,
+          from: seg.from,
+          to: seg.to,
+          p1: { x: p1.x, y: p1.y, z: p1.z || 300 },
+          p2: { x: p2.x, y: p2.y, z: p2.z || 300 },
+          thickness1: thickness,
+          thickness2: thickness * 0.85, // Slight taper
+          color: seg.color || '#66aaff'
+        });
       }
     });
 
-    setLandmarkForms(generatedForms);
+    setAnatomyFormData(generatedFormData);
+    setLandmarkForms([]); // Clear old primitive forms - we use custom rendering now
   }, [landmarks, anatomyMode, autoGenerateForms]);
 
   // Main render effect
@@ -624,7 +612,12 @@ export default function App() {
       draw3DForms(octx, width, height);
     }
 
-    // Draw anatomy (always render if landmarks exist)
+    // Draw anatomy forms (volumetric 3D cylinders between landmarks)
+    if (Object.keys(landmarks).length > 1 && autoGenerateForms) {
+      drawAnatomyForms(octx, width, height);
+    }
+
+    // Draw anatomy (skeleton, landmarks, proportions)
     if (Object.keys(landmarks).length > 0) {
       drawAnatomy(octx, width, height);
     }
@@ -1072,6 +1065,111 @@ export default function App() {
     return { x: pt.x, y: pt.y, scale: 1 };
   };
 
+  // Draw volumetric 3D forms between landmarks - proper perspective cylinders
+  const drawAnatomyForms = (ctx, w, h) => {
+    if (!autoGenerateForms || anatomyFormData.length === 0 || !perspectiveSystem) return;
+
+    anatomyFormData.forEach(formData => {
+      const { p1, p2, thickness1, thickness2, name } = formData;
+
+      // Project endpoints
+      const proj1 = perspectiveSystem.project(new Vec3(p1.x, p1.y, p1.z));
+      const proj2 = perspectiveSystem.project(new Vec3(p2.x, p2.y, p2.z));
+
+      if (!proj1.visible || !proj2.visible) return;
+
+      // Calculate direction vector for the cylinder axis
+      const dx = proj2.x - proj1.x;
+      const dy = proj2.y - proj1.y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len < 1) return;
+
+      // Perpendicular direction for width
+      const perpX = -dy / len;
+      const perpY = dx / len;
+
+      // Scale thickness by perspective
+      const scaledThickness1 = thickness1 * (proj1.scale || 1);
+      const scaledThickness2 = thickness2 * (proj2.scale || 1);
+
+      // Draw tapered cylinder as a polygon
+      ctx.beginPath();
+
+      // Generate ellipse points at each end for 3D effect
+      const segments = 8;
+
+      // Start with the outline - left side going from p1 to p2
+      for (let i = 0; i <= segments; i++) {
+        const t = i / segments;
+        // Interpolate position along cylinder
+        const x = proj1.x + dx * t;
+        const y = proj1.y + dy * t;
+        // Interpolate thickness
+        const thickness = scaledThickness1 + (scaledThickness2 - scaledThickness1) * t;
+        // Offset perpendicular
+        const offsetX = perpX * thickness;
+        const offsetY = perpY * thickness;
+
+        if (i === 0) {
+          ctx.moveTo(x + offsetX, y + offsetY);
+        } else {
+          ctx.lineTo(x + offsetX, y + offsetY);
+        }
+      }
+
+      // Right side going back from p2 to p1
+      for (let i = segments; i >= 0; i--) {
+        const t = i / segments;
+        const x = proj1.x + dx * t;
+        const y = proj1.y + dy * t;
+        const thickness = scaledThickness1 + (scaledThickness2 - scaledThickness1) * t;
+        const offsetX = -perpX * thickness;
+        const offsetY = -perpY * thickness;
+        ctx.lineTo(x + offsetX, y + offsetY);
+      }
+
+      ctx.closePath();
+
+      // Fill with gradient for 3D effect
+      const gradient = ctx.createLinearGradient(
+        proj1.x + perpX * scaledThickness1,
+        proj1.y + perpY * scaledThickness1,
+        proj1.x - perpX * scaledThickness1,
+        proj1.y - perpY * scaledThickness1
+      );
+      gradient.addColorStop(0, 'rgba(60, 120, 180, 0.7)');
+      gradient.addColorStop(0.3, 'rgba(100, 180, 255, 0.8)');
+      gradient.addColorStop(0.5, 'rgba(150, 220, 255, 0.9)');
+      gradient.addColorStop(0.7, 'rgba(100, 180, 255, 0.8)');
+      gradient.addColorStop(1, 'rgba(40, 80, 140, 0.7)');
+
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      // Outline
+      ctx.strokeStyle = 'rgba(0, 100, 200, 0.9)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Draw cross-section ellipses at ends for 3D effect
+      const drawEndCap = (cx, cy, radiusX, radiusY, angle, isFront) => {
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, radiusX, Math.max(5, radiusY * 0.3), angle, 0, Math.PI * 2);
+        ctx.fillStyle = isFront ? 'rgba(150, 200, 255, 0.9)' : 'rgba(60, 100, 150, 0.7)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0, 100, 200, 0.8)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      };
+
+      // Draw end caps (ellipses rotated to face camera)
+      const angle = Math.atan2(dy, dx);
+      const isFrontEnd1 = p1.z < p2.z;
+      drawEndCap(proj1.x, proj1.y, scaledThickness1, scaledThickness1, angle + Math.PI/2, !isFrontEnd1);
+      drawEndCap(proj2.x, proj2.y, scaledThickness2, scaledThickness2, angle + Math.PI/2, isFrontEnd1);
+    });
+  };
+
   const drawAnatomy = (ctx, w, h) => {
     const currentLandmarks = anatomyMode === 'human' ? HumanLandmarks : QuadrupedLandmarks;
     const currentSegments = anatomyMode === 'human' ? HumanLimbSegments : QuadrupedLimbSegments;
@@ -1103,42 +1201,44 @@ export default function App() {
       return;
     }
 
-    // Calculate reference unit with perspective awareness
-    let refUnit;
-    if (anatomyMode === 'human') {
-      // Calculate head unit using projected positions
-      if (landmarks.crown && landmarks.chin) {
-        const crownProj = projectLandmark(landmarks.crown);
-        const chinProj = projectLandmark(landmarks.chin);
-        if (crownProj && chinProj) {
-          // Use projected distance (accounts for depth/perspective)
-          refUnit = Math.sqrt(
-            (crownProj.x - chinProj.x) ** 2 +
-            (crownProj.y - chinProj.y) ** 2
-          );
-        } else {
-          refUnit = AnatomyUtils.getHeadUnit(landmarks);
-        }
-      } else {
-        refUnit = AnatomyUtils.getHeadUnit(landmarks);
+    // Calculate reference unit in WORLD space (3D distance for head unit)
+    let worldHeadUnit = 100; // Default
+    let projectedHeadUnit = 100;
+
+    if (anatomyMode === 'human' && landmarks.crown && landmarks.chin) {
+      // Calculate 3D distance in world space
+      const dx = landmarks.chin.x - landmarks.crown.x;
+      const dy = landmarks.chin.y - landmarks.crown.y;
+      const dz = (landmarks.chin.z || 300) - (landmarks.crown.z || 300);
+      worldHeadUnit = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+      // Also calculate projected distance for rendering
+      const crownProj = projectLandmark(landmarks.crown);
+      const chinProj = projectLandmark(landmarks.chin);
+      if (crownProj && chinProj) {
+        projectedHeadUnit = Math.sqrt(
+          (crownProj.x - chinProj.x) ** 2 +
+          (crownProj.y - chinProj.y) ** 2
+        );
       }
-    } else {
-      if (landmarks.skull && landmarks.withers) {
-        const skullProj = projectLandmark(landmarks.skull);
-        const withersProj = projectLandmark(landmarks.withers);
-        if (skullProj && withersProj) {
-          // Use projected distance
-          refUnit = Math.sqrt(
-            (skullProj.x - withersProj.x) ** 2 +
-            (skullProj.y - withersProj.y) ** 2
-          );
-        } else {
-          refUnit = MathUtils.distance2D(landmarks.skull, landmarks.withers);
-        }
-      } else {
-        refUnit = 100;
+    } else if (anatomyMode === 'quadruped' && landmarks.skull && landmarks.withers) {
+      const dx = landmarks.withers.x - landmarks.skull.x;
+      const dy = landmarks.withers.y - landmarks.skull.y;
+      const dz = (landmarks.withers.z || 300) - (landmarks.skull.z || 300);
+      worldHeadUnit = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+      const skullProj = projectLandmark(landmarks.skull);
+      const withersProj = projectLandmark(landmarks.withers);
+      if (skullProj && withersProj) {
+        projectedHeadUnit = Math.sqrt(
+          (skullProj.x - withersProj.x) ** 2 +
+          (skullProj.y - withersProj.y) ** 2
+        );
       }
     }
+
+    // Keep refUnit for backward compatibility (used elsewhere)
+    const refUnit = projectedHeadUnit;
 
     // Draw proportion grid (perspective-aware)
     if (showProportions && anatomyMode === 'human' && landmarks.crown) {
@@ -1157,13 +1257,15 @@ export default function App() {
           // Calculate 3D position for this proportion level
           if (landmarks.crown.z !== undefined && perspectiveSystem) {
             // In 3D mode, project the horizontal line at each level
+            // Use world coordinates: Y decreases as we go DOWN the figure
             const z = landmarks.crown.z;
             const baseY = landmarks.crown.y;
+            const levelY = baseY - i * worldHeadUnit; // SUBTRACT to go down in world space
 
             // Sample points across the width for the grid line
             ctx.beginPath();
             for (let x = -w/2; x <= w/2; x += 50) {
-              const pt3d = new Vec3(x, baseY + i * refUnit / crownProj.scale, z);
+              const pt3d = new Vec3(x, levelY, z);
               const proj = perspectiveSystem.project(pt3d);
               if (proj.visible) {
                 if (x === -w/2) {
@@ -1175,15 +1277,15 @@ export default function App() {
             }
             ctx.stroke();
 
-            // Label
-            const labelPt3d = new Vec3(-w/2 + 100, baseY + i * refUnit / crownProj.scale, z);
+            // Label on left side
+            const labelPt3d = new Vec3(-w/2 + 80, levelY, z);
             const labelProj = perspectiveSystem.project(labelPt3d);
             if (labelProj.visible) {
               ctx.fillText(labels[i], labelProj.x, labelProj.y - 4);
             }
           } else {
-            // 2D fallback
-            const y = crownProj.y + i * refUnit;
+            // 2D fallback - Y increases downward on screen
+            const y = crownProj.y + i * projectedHeadUnit;
             if (y >= 0 && y <= h) {
               ctx.beginPath();
               ctx.moveTo(0, y);
