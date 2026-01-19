@@ -554,6 +554,22 @@ export default function App() {
         ctx.fillText('Z', zEnd.x + 5, zEnd.y);
       }
     });
+
+    // Show placement preview when user is placing a form
+    if (placingForm) {
+      ctx.fillStyle = 'rgba(255, 255, 0, 0.8)';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.fillText(`Click to place ${formType}`, 10, 30);
+      ctx.fillStyle = 'rgba(255, 255, 0, 0.3)';
+      ctx.strokeStyle = 'rgba(255, 255, 0, 0.8)';
+      ctx.lineWidth = 2;
+      // Draw a pulsing circle at center as visual guide
+      const pulseRadius = 20 + Math.sin(Date.now() / 200) * 5;
+      ctx.beginPath();
+      ctx.arc(w / 2, h / 2, pulseRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
   };
 
   const drawAnatomy = (ctx, w, h) => {
@@ -752,8 +768,8 @@ export default function App() {
             ctx.scale(1, compression);
             ctx.beginPath();
             ctx.arc(0, 0, currentWidth, 0, Math.PI * 2);
-            ctx.restore();
             ctx.stroke();
+            ctx.restore();
           }
 
           // Arrow
