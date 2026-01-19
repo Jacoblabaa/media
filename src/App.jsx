@@ -179,7 +179,24 @@ export default function App() {
         tempCanvas.height = h;
         const ctx = tempCanvas.getContext('2d');
         ctx.drawImage(img, 0, 0, w, h);
-        setImageData(ctx.getImageData(0, 0, w, h));
+        const imgData = ctx.getImageData(0, 0, w, h);
+        setImageData(imgData);
+
+        // Analyze image
+        const palette = ColorExtractor.extractPalette(imgData, 6);
+        setColorPalette(palette.map(c => ColorExtractor.rgbToHex(c.r, c.g, c.b)));
+
+        const values = ColorExtractor.analyzeValues(imgData);
+        const lightSource = ColorExtractor.detectLightSource(imgData, w, h);
+
+        setImageAnalysis({
+          values,
+          lightSource,
+          width: w,
+          height: h
+        });
+
+        setShowColorPalette(true);
 
         // Reset everything
         setForms([]);
