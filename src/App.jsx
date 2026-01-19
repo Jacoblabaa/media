@@ -3,7 +3,7 @@ import { Vec3, Matrix4, PerspectiveSystem, Primitive3D, MathUtils } from './util
 import { Gizmo3D } from './utils/gizmo3d.js';
 import { IntersectionDetector, DepthSorter } from './utils/intersections.js';
 import { FoundPerspective, ColorExtractor, PoseTemplates } from './systems/imageAnalysis.js';
-import { getContextualTip, getRandomTip } from './systems/educational.js';
+// Educational system removed per user request
 import {
   HumanLandmarks,
   HumanLimbSegments,
@@ -108,10 +108,7 @@ export default function App() {
   const [showDynamicSymmetry, setShowDynamicSymmetry] = useState(false);
   const [showArmature, setShowArmature] = useState(false);
 
-  // Educational
-  const [showEducationalPanel, setShowEducationalPanel] = useState(true); // Show tips by default
-  const [currentTip, setCurrentTip] = useState(null);
-  const [quickTip, setQuickTip] = useState(getRandomTip());
+  // Educational - REMOVED
 
   // Measurements
   const [measurements, setMeasurements] = useState([]);
@@ -133,20 +130,7 @@ export default function App() {
     setPerspectiveSystem(ps);
   }, [perspectiveType, canvasSize, horizonY, vanishingPoints, fisheyeStrength, cameraDistance]);
 
-  // TEST: Add a default form on first load to verify rendering works
-  useEffect(() => {
-    if (forms.length === 0 && perspectiveSystem) {
-      const testCube = new Primitive3D(
-        'cube',
-        new Vec3(0, 0, 300),
-        new Vec3(0, 0, 0),
-        new Vec3(1, 1, 1)
-      );
-      testCube.id = Date.now();
-      console.log('TEST: Adding default cube for verification. Vertices:', testCube.vertices.length);
-      setForms([testCube]);
-    }
-  }, [perspectiveSystem]); // Only run when perspective system initializes
+  // Test cube removed - canvas starts blank as expected
 
   // Sync gizmo mode with manipulation mode
   useEffect(() => {
@@ -155,27 +139,7 @@ export default function App() {
     }
   }, [manipulationMode]);
 
-  // Update contextual educational tip
-  useEffect(() => {
-    const context = {
-      tool: activeTab,
-      formType: selectedForm !== null ? forms[selectedForm]?.type : formType,
-      perspectiveType: perspectiveType,
-      action: null
-    };
-
-    const tip = getContextualTip(context);
-    setCurrentTip(tip);
-  }, [activeTab, selectedForm, forms, formType, perspectiveType]);
-
-  // Rotate quick tips every 15 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setQuickTip(getRandomTip());
-    }, 15000);
-
-    return () => clearInterval(interval);
-  }, []);
+  // Educational tip effects removed
 
   // Handle image upload
   const handleImageUpload = useCallback((e) => {
@@ -266,12 +230,7 @@ export default function App() {
         new Vec3(1, 1, 1)
       );
       newForm.id = Date.now(); // Add ID without spreading (preserves methods)
-      console.log('Created form:', formType, 'at position:', newForm.position, 'vertices:', newForm.vertices.length);
-      setForms(prev => {
-        const updated = [...prev, newForm];
-        console.log('Forms array now has', updated.length, 'forms');
-        return updated;
-      });
+      setForms(prev => [...prev, newForm]);
       setPlacingForm(false);
       setSelectedForm(forms.length);
       setFormPreviewPos(null);
@@ -513,48 +472,7 @@ export default function App() {
       return;
     }
 
-    // Legacy form manipulation (if not using gizmo)
-    if (selectedForm !== null && dragStart) {
-      const dx = pt.x - dragStart.x;
-      const dy = pt.y - dragStart.y;
-
-      setForms(prev => prev.map((form, i) => {
-        if (i !== selectedForm) return form;
-
-        if (manipulationMode === 'move') {
-          return {
-            ...form,
-            position: new Vec3(
-              form.position.x + dx,
-              form.position.y + dy,
-              form.position.z
-            )
-          };
-        } else if (manipulationMode === 'rotate') {
-          return {
-            ...form,
-            rotation: new Vec3(
-              form.rotation.x + dy * 0.01,
-              form.rotation.y + dx * 0.01,
-              form.rotation.z
-            )
-          };
-        } else if (manipulationMode === 'scale') {
-          const scaleFactor = 1 + dy * 0.01;
-          return {
-            ...form,
-            scale: new Vec3(
-              form.scale.x * scaleFactor,
-              form.scale.y * scaleFactor,
-              form.scale.z * scaleFactor
-            )
-          };
-        }
-        return form;
-      }));
-
-      setDragStart(pt);
-    }
+    // Legacy manipulation removed - use gizmo only (preserves class methods)
   }, [isDragging, draggedVP, isDrawingGesture, drawingPerspLine, currentMeasure, selectedForm, dragStart, manipulationMode, placingForm, perspectiveSystem, getPoint]);
 
   // Handle mouse up
@@ -575,7 +493,6 @@ export default function App() {
         foundPerspectiveRef.current.addLine(drawingPerspLine.start, drawingPerspLine.end);
         // Auto-detect vanishing points
         const detectedVPs = foundPerspectiveRef.current.detectVanishingPoints(50);
-        console.log('Detected VPs:', detectedVPs);
         // Convert detected VPs to vanishing points for display
         if (detectedVPs.length > 0) {
           const colors = ['#ff5555', '#55ff55', '#5555ff', '#ffff55', '#ff55ff'];
@@ -1166,10 +1083,8 @@ export default function App() {
 
     if (!hasMinimum) {
       // Just draw placed landmarks
-      console.log('Drawing landmarks without minimum:', Object.keys(landmarks));
       Object.entries(landmarks).forEach(([key, pt]) => {
         const projected = projectLandmark(pt);
-        console.log(`Landmark ${key}:`, pt, '-> projected:', projected);
         if (!projected) return;
 
         const cfg = currentLandmarks.find(l => l.key === key);
@@ -1412,25 +1327,13 @@ export default function App() {
 
     // Draw masses
     if (showMasses) {
-      console.log('Drawing masses, refUnit:', refUnit, 'currentSegments:', currentSegments.length);
-      let massesDrawn = 0;
-
       // For each limb segment with both endpoints
       currentSegments.forEach(seg => {
-        if (!landmarks[seg.from] || !landmarks[seg.to]) {
-          console.log(`Skipping segment ${seg.id}: missing landmarks (${seg.from}, ${seg.to})`);
-          return;
-        }
+        if (!landmarks[seg.from] || !landmarks[seg.to]) return;
 
         const p1 = projectLandmark(landmarks[seg.from]);
         const p2 = projectLandmark(landmarks[seg.to]);
-        if (!p1 || !p2) {
-          console.log(`Skipping segment ${seg.id}: projection failed`);
-          return;
-        }
-
-        massesDrawn++;
-        console.log(`Drawing mass for ${seg.id}: ${seg.from}->${seg.to}, thickness=${seg.thickness}`);
+        if (!p1 || !p2) return;
 
         const avgScale = (p1.scale + p2.scale) / 2;
         const avgDepth = ((landmarks[seg.from].z || 300) + (landmarks[seg.to].z || 300)) / 2;
@@ -1513,8 +1416,6 @@ export default function App() {
           ctx.fillText(fs.toward ? 'TOWARD' : 'AWAY', mid.x + 15, mid.y - 18);
         }
       });
-
-      console.log(`Total masses drawn: ${massesDrawn} out of ${currentSegments.length} segments`);
     }
 
     // Draw gesture line
@@ -2007,13 +1908,6 @@ export default function App() {
       <header className="header">
         <h1 className="title">ARTIST'S 3D TOOLKIT</h1>
         <div className="header-controls">
-          <button
-            className={`btn ${showEducationalPanel ? 'btn-active' : ''}`}
-            onClick={() => setShowEducationalPanel(!showEducationalPanel)}
-            title="Toggle educational tips"
-          >
-            💡 {showEducationalPanel ? 'Hide' : 'Show'} Tips
-          </button>
           <label className="file-upload">
             <input type="file" accept="image/*" onChange={handleImageUpload} />
             Upload Image
@@ -2239,44 +2133,7 @@ export default function App() {
               </div>
             )}
 
-            {/* Educational Panel */}
-            {showEducationalPanel && currentTip && (
-              <div className="educational-panel">
-                <div className="educational-header">
-                  <span>💡 {currentTip.title}</span>
-                  <button
-                    className="btn-close"
-                    onClick={() => setShowEducationalPanel(false)}
-                    title="Close tips"
-                  >
-                    ×
-                  </button>
-                </div>
-                <div className="educational-content">
-                  <p className="educational-description">{currentTip.description}</p>
-                  {currentTip.tips && (
-                    <div className="educational-tips">
-                      <strong>Tips:</strong>
-                      <ul>
-                        {currentTip.tips.map((tip, i) => (
-                          <li key={i}>{tip}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {currentTip.artistReference && (
-                    <p className="educational-reference">
-                      <strong>Artist Reference:</strong> {currentTip.artistReference}
-                    </p>
-                  )}
-                  {currentTip.whenToUse && (
-                    <p className="educational-when">
-                      <strong>When to use:</strong> {currentTip.whenToUse}
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
+            {/* Educational Panel removed */}
 
             {/* Color Palette */}
             {showColorPalette && colorPalette.length > 0 && (
@@ -2324,10 +2181,7 @@ export default function App() {
               </div>
             )}
 
-            {/* Quick Tip */}
-            <div className="quick-tip">
-              💡 {quickTip}
-            </div>
+            {/* Quick tip removed */}
           </div>
         </main>
       </div>
@@ -2540,15 +2394,16 @@ function PerspectivePanel({ perspectiveType, setPerspectiveType, editingVP, setE
   return (
     <div className="panel">
       <div className="panel-section">
-        <h3>Perspective Type</h3>
+        <h3>Perspective Mode</h3>
         <select value={perspectiveType} onChange={e => setPerspectiveType(e.target.value)} className="select">
-          <option value="1pt">1-Point</option>
-          <option value="2pt">2-Point</option>
-          <option value="3pt">3-Point</option>
-          <option value="4pt">4-Point</option>
-          <option value="5pt">5-Point</option>
+          <option value="1pt">1-Point (1 VP center)</option>
+          <option value="2pt">2-Point (2 VPs horizontal)</option>
+          <option value="3pt">3-Point (3 VPs + vertical)</option>
           <option value="fisheye">Fisheye / Curvilinear</option>
         </select>
+        <p style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>
+          Mode sets default VPs. Add more below or drag to reposition.
+        </p>
       </div>
 
       <div className="panel-section">
@@ -2752,34 +2607,19 @@ function AnatomyPanel({ anatomyMode, setAnatomyMode, quadrupedType, setQuadruped
           <div className="btn-group" style={{ flexDirection: 'column', gap: '4px' }}>
             <button
               className="btn btn-secondary btn-sm"
-              onClick={() => {
-                const pose = PoseTemplates.human.tPose.landmarks;
-                console.log('Loading T-Pose template:', pose);
-                console.log('Landmark count:', Object.keys(pose).length);
-                setLandmarks(pose);
-              }}
+              onClick={() => setLandmarks(PoseTemplates.human.tPose.landmarks)}
             >
               T-Pose (Neutral)
             </button>
             <button
               className="btn btn-secondary btn-sm"
-              onClick={() => {
-                const pose = PoseTemplates.human.actionPose.landmarks;
-                console.log('Loading Action Pose template:', pose);
-                console.log('Landmark count:', Object.keys(pose).length);
-                setLandmarks(pose);
-              }}
+              onClick={() => setLandmarks(PoseTemplates.human.actionPose.landmarks)}
             >
               Action (Running)
             </button>
             <button
               className="btn btn-secondary btn-sm"
-              onClick={() => {
-                const pose = PoseTemplates.human.contrapposto.landmarks;
-                console.log('Loading Contrapposto template:', pose);
-                console.log('Landmark count:', Object.keys(pose).length);
-                setLandmarks(pose);
-              }}
+              onClick={() => setLandmarks(PoseTemplates.human.contrapposto.landmarks)}
             >
               Contrapposto (Classical)
             </button>
