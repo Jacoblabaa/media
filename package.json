@@ -1,6 +1,8 @@
 {
   "name": "artist-toolkit-3d",
   "version": "1.0.0",
+  "description": "Professional 3D artist toolkit for perspective, anatomy, and composition analysis",
+  "author": "Artist Toolkit Team",
   "main": "electron.js",
   "scripts": {
     "dev": "vite",
@@ -22,8 +24,7 @@
       "output": "release"
     },
     "win": {
-      "target": "nsis",
-      "icon": "dist/icon.png"
+      "target": "nsis"
     },
     "linux": {
       "target": "AppImage",
