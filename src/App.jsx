@@ -32,6 +32,9 @@ export default function App() {
   const [manipulationMode, setManipulationMode] = useState('move'); // 'move', 'rotate', 'scale'
   const [show3DAxes, setShow3DAxes] = useState(true);
   const [showConstruction, setShowConstruction] = useState(true);
+  const [showGroundPlane, setShowGroundPlane] = useState(true);
+  const [showShadows, setShowShadows] = useState(true);
+  const [lightDirection, setLightDirection] = useState({ x: -0.5, y: -1, z: -0.5 }); // Directional light
 
   // Perspective
   const [perspectiveType, setPerspectiveType] = useState('2pt');
@@ -464,6 +467,40 @@ export default function App() {
   const draw3DForms = (ctx, w, h) => {
     if (!perspectiveSystem) return;
 
+    // Draw ground plane
+    if (showGroundPlane) {
+      ctx.fillStyle = 'rgba(80, 80, 100, 0.15)';
+      ctx.strokeStyle = 'rgba(100, 100, 150, 0.3)';
+      ctx.lineWidth = 1;
+
+      // Draw ground grid in perspective
+      const gridLines = perspectiveSystem.generateGrid(100, 1200);
+      gridLines.forEach(line => {
+        if (line.type === 'across' && line.points.length > 1) {
+          ctx.beginPath();
+          ctx.moveTo(line.points[0].x, line.points[0].y);
+          line.points.forEach(p => ctx.lineTo(p.x, p.y));
+          ctx.stroke();
+        }
+      });
+
+      // Fill ground plane polygon (simplified)
+      const groundCorners = [
+        perspectiveSystem.project(new Vec3(-800, 0, 0)),
+        perspectiveSystem.project(new Vec3(800, 0, 0)),
+        perspectiveSystem.project(new Vec3(800, 0, 1200)),
+        perspectiveSystem.project(new Vec3(-800, 0, 1200))
+      ].filter(p => p.visible);
+
+      if (groundCorners.length >= 3) {
+        ctx.beginPath();
+        ctx.moveTo(groundCorners[0].x, groundCorners[0].y);
+        groundCorners.forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
     forms.forEach((form, index) => {
       const isSelected = index === selectedForm;
       const transformed = form.getTransformedVertices();
@@ -508,6 +545,44 @@ export default function App() {
           ctx.arc(p.x, p.y, isSelected ? 4 : 3, 0, Math.PI * 2);
           ctx.fill();
         });
+      }
+
+      // Draw shadow on ground plane
+      if (showShadows && showGroundPlane) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
+        ctx.lineWidth = 1;
+
+        // Project shadow vertices (y=0, ground plane)
+        const shadowVertices = transformed.map(v => {
+          // Simple shadow projection: flatten to y=0
+          return perspectiveSystem.project(new Vec3(v.x, 0, v.z));
+        });
+
+        // Draw shadow edges
+        form.edges.forEach(([i1, i2]) => {
+          const p1 = shadowVertices[i1];
+          const p2 = shadowVertices[i2];
+          if (p1.visible && p2.visible) {
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.stroke();
+          }
+        });
+
+        // Fill shadow faces
+        if (form.faces && form.faces.length > 0) {
+          form.faces.forEach(face => {
+            ctx.beginPath();
+            ctx.moveTo(shadowVertices[face[0]].x, shadowVertices[face[0]].y);
+            for (let i = 1; i < face.length; i++) {
+              ctx.lineTo(shadowVertices[face[i]].x, shadowVertices[face[i]].y);
+            }
+            ctx.closePath();
+            ctx.fill();
+          });
+        }
       }
 
       // Draw axes if selected
@@ -1145,6 +1220,10 @@ export default function App() {
                 setShow3DAxes={setShow3DAxes}
                 showConstruction={showConstruction}
                 setShowConstruction={setShowConstruction}
+                showGroundPlane={showGroundPlane}
+                setShowGroundPlane={setShowGroundPlane}
+                showShadows={showShadows}
+                setShowShadows={setShowShadows}
               />
             )}
 
@@ -1271,7 +1350,7 @@ export default function App() {
 }
 
 // Panel Components
-function Forms3DPanel({ formType, setFormType, placingForm, setPlacingForm, forms, selectedForm, setSelectedForm, setForms, manipulationMode, setManipulationMode, show3DAxes, setShow3DAxes, showConstruction, setShowConstruction }) {
+function Forms3DPanel({ formType, setFormType, placingForm, setPlacingForm, forms, selectedForm, setSelectedForm, setForms, manipulationMode, setManipulationMode, show3DAxes, setShow3DAxes, showConstruction, setShowConstruction, showGroundPlane, setShowGroundPlane, showShadows, setShowShadows }) {
   const formTypes = ['cube', 'sphere', 'cylinder', 'cone', 'pyramid'];
 
   return (
@@ -1341,6 +1420,14 @@ function Forms3DPanel({ formType, setFormType, placingForm, setPlacingForm, form
         <label className="checkbox">
           <input type="checkbox" checked={showConstruction} onChange={e => setShowConstruction(e.target.checked)} />
           Construction Lines
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={showGroundPlane} onChange={e => setShowGroundPlane(e.target.checked)} />
+          Ground Plane
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={showShadows} onChange={e => setShowShadows(e.target.checked)} />
+          Shadows
         </label>
       </div>
 
