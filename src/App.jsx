@@ -33,6 +33,7 @@ export default function App() {
   const [selectedForm, setSelectedForm] = useState(null);
   const [formType, setFormType] = useState('cube');
   const [placingForm, setPlacingForm] = useState(false);
+  const [formPreviewPos, setFormPreviewPos] = useState(null);
   const [manipulationMode, setManipulationMode] = useState('move'); // 'move', 'rotate', 'scale'
   const [show3DAxes, setShow3DAxes] = useState(true);
   const [showConstruction, setShowConstruction] = useState(true);
@@ -251,10 +252,13 @@ export default function App() {
 
     // Placing 3D form
     if (placingForm && perspectiveSystem) {
-      // Place form at clicked position in 3D space
+      // Place form at clicked position in 3D space with constraints
+      const x = Math.max(-canvasSize.width / 2 + 50, Math.min(canvasSize.width / 2 - 50, pt.x - canvasSize.width / 2));
+      const y = Math.max(-canvasSize.height / 2 + 50, Math.min(canvasSize.height / 2 - 50, -(pt.y - canvasSize.height / 2)));
+
       const newForm = new Primitive3D(
         formType,
-        new Vec3(pt.x - canvasSize.width / 2, -(pt.y - canvasSize.height / 2), 200), // Note: flip Y for 3D
+        new Vec3(x, y, 200),
         new Vec3(0, 0, 0),
         new Vec3(1, 1, 1)
       );
@@ -267,6 +271,7 @@ export default function App() {
       });
       setPlacingForm(false);
       setSelectedForm(forms.length);
+      setFormPreviewPos(null);
       return;
     }
 
@@ -408,8 +413,16 @@ export default function App() {
 
   // Handle mouse move
   const handleMouseMove = useCallback((e) => {
-    if (!isDragging) return;
     const pt = getPoint(e);
+
+    // Show form placement preview
+    if (placingForm && perspectiveSystem) {
+      setFormPreviewPos(pt);
+    } else {
+      setFormPreviewPos(null);
+    }
+
+    if (!isDragging) return;
 
     // Dragging VP
     if (draggedVP !== null) {
@@ -450,7 +463,19 @@ export default function App() {
 
             // Mutate directly - DO NOT SPREAD (preserves class methods)
             if (manipulationMode === 'move') {
-              f.position = f.position.add(delta);
+              const newPos = f.position.add(delta);
+
+              // Constrain to canvas bounds in 3D space
+              const maxX = canvasSize.width / 2 - 50;
+              const maxY = canvasSize.height / 2 - 50;
+              const minZ = 50;  // Don't get too close to camera
+              const maxZ = 1200; // Don't go too far
+
+              f.position = new Vec3(
+                Math.max(-maxX, Math.min(maxX, newPos.x)),
+                Math.max(-maxY, Math.min(maxY, newPos.y)),
+                Math.max(minZ, Math.min(maxZ, newPos.z))
+              );
             } else if (manipulationMode === 'rotate') {
               f.rotation = new Vec3(
                 f.rotation.x + delta.x,
@@ -458,10 +483,11 @@ export default function App() {
                 f.rotation.z + delta.z
               );
             } else if (manipulationMode === 'scale') {
+              // Constrain scale to reasonable values
               f.scale = new Vec3(
-                f.scale.x * delta.x,
-                f.scale.y * delta.y,
-                f.scale.z * delta.z
+                Math.max(0.1, Math.min(5, f.scale.x * delta.x)),
+                Math.max(0.1, Math.min(5, f.scale.y * delta.y)),
+                Math.max(0.1, Math.min(5, f.scale.z * delta.z))
               );
             }
             return f;
@@ -514,7 +540,7 @@ export default function App() {
 
       setDragStart(pt);
     }
-  }, [isDragging, draggedVP, isDrawingGesture, drawingPerspLine, currentMeasure, selectedForm, dragStart, manipulationMode, getPoint]);
+  }, [isDragging, draggedVP, isDrawingGesture, drawingPerspLine, currentMeasure, selectedForm, dragStart, manipulationMode, placingForm, perspectiveSystem, getPoint]);
 
   // Handle mouse up
   const handleMouseUp = useCallback(() => {
@@ -647,7 +673,8 @@ export default function App() {
     showGoldenSpiral, spiralFlip, vanishingPoints, perspectiveLines,
     drawingPerspLine, measurements, currentMeasure, focalPoints,
     show3DAxes, showConstruction, horizonY, gridDensity,
-    showDynamicSymmetry, showArmature, anatomyMode
+    showDynamicSymmetry, showArmature, anatomyMode, placingForm,
+    formPreviewPos, formType
   ]);
 
   // Drawing functions
@@ -952,15 +979,47 @@ export default function App() {
       ctx.fillStyle = 'rgba(255, 255, 0, 0.8)';
       ctx.font = 'bold 14px sans-serif';
       ctx.fillText(`Click to place ${formType}`, 10, 30);
-      ctx.fillStyle = 'rgba(255, 255, 0, 0.3)';
-      ctx.strokeStyle = 'rgba(255, 255, 0, 0.8)';
-      ctx.lineWidth = 2;
-      // Draw a pulsing circle at center as visual guide
-      const pulseRadius = 20 + Math.sin(Date.now() / 200) * 5;
-      ctx.beginPath();
-      ctx.arc(w / 2, h / 2, pulseRadius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
+
+      // Draw ghost preview of form at cursor
+      if (formPreviewPos) {
+        const previewForm = new Primitive3D(
+          formType,
+          new Vec3(formPreviewPos.x - w / 2, -(formPreviewPos.y - h / 2), 200),
+          new Vec3(0, 0, 0),
+          new Vec3(1, 1, 1)
+        );
+
+        const transformed = previewForm.getTransformedVertices();
+        const projected = transformed.map(v => perspectiveSystem.project(v));
+
+        // Draw ghost form
+        ctx.strokeStyle = 'rgba(255, 255, 0, 0.6)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+
+        previewForm.edges.forEach(([i1, i2]) => {
+          const p1 = projected[i1];
+          const p2 = projected[i2];
+          if (p1.visible && p2.visible) {
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.stroke();
+          }
+        });
+
+        ctx.setLineDash([]);
+
+        // Draw placement crosshair
+        ctx.strokeStyle = 'rgba(255, 255, 0, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(formPreviewPos.x - 15, formPreviewPos.y);
+        ctx.lineTo(formPreviewPos.x + 15, formPreviewPos.y);
+        ctx.moveTo(formPreviewPos.x, formPreviewPos.y - 15);
+        ctx.lineTo(formPreviewPos.x, formPreviewPos.y + 15);
+        ctx.stroke();
+      }
     }
   };
 
@@ -1018,36 +1077,98 @@ export default function App() {
       return;
     }
 
-    // Calculate reference unit
+    // Calculate reference unit with perspective awareness
     let refUnit;
     if (anatomyMode === 'human') {
-      refUnit = AnatomyUtils.getHeadUnit(landmarks);
+      // Calculate head unit using projected positions
+      if (landmarks.crown && landmarks.chin) {
+        const crownProj = projectLandmark(landmarks.crown);
+        const chinProj = projectLandmark(landmarks.chin);
+        if (crownProj && chinProj) {
+          // Use projected distance (accounts for depth/perspective)
+          refUnit = Math.sqrt(
+            (crownProj.x - chinProj.x) ** 2 +
+            (crownProj.y - chinProj.y) ** 2
+          );
+        } else {
+          refUnit = AnatomyUtils.getHeadUnit(landmarks);
+        }
+      } else {
+        refUnit = AnatomyUtils.getHeadUnit(landmarks);
+      }
     } else {
-      refUnit = landmarks.skull && landmarks.withers
-        ? MathUtils.distance2D(landmarks.skull, landmarks.withers)
-        : 100;
+      if (landmarks.skull && landmarks.withers) {
+        const skullProj = projectLandmark(landmarks.skull);
+        const withersProj = projectLandmark(landmarks.withers);
+        if (skullProj && withersProj) {
+          // Use projected distance
+          refUnit = Math.sqrt(
+            (skullProj.x - withersProj.x) ** 2 +
+            (skullProj.y - withersProj.y) ** 2
+          );
+        } else {
+          refUnit = MathUtils.distance2D(landmarks.skull, landmarks.withers);
+        }
+      } else {
+        refUnit = 100;
+      }
     }
 
-    // Draw proportion grid
-    if (showProportions && anatomyMode === 'human') {
-      ctx.strokeStyle = 'rgba(255, 100, 100, 0.4)';
-      ctx.setLineDash([6, 4]);
-      ctx.lineWidth = 1;
-      ctx.fillStyle = 'rgba(255, 100, 100, 0.9)';
-      ctx.font = '10px monospace';
+    // Draw proportion grid (perspective-aware)
+    if (showProportions && anatomyMode === 'human' && landmarks.crown) {
+      const crownProj = projectLandmark(landmarks.crown);
+      if (crownProj) {
+        ctx.strokeStyle = 'rgba(255, 100, 100, 0.4)';
+        ctx.setLineDash([6, 4]);
+        ctx.lineWidth = 1 * crownProj.scale;
+        ctx.fillStyle = 'rgba(255, 100, 100, 0.9)';
+        ctx.font = `${10 * crownProj.scale}px monospace`;
 
-      const labels = ['0-Crown', '1-Chin', '2-Nipple', '3-Navel', '4-Crotch', '5', '6-Knee', '7', '8-Feet'];
-      for (let i = 0; i <= 8; i++) {
-        const y = landmarks.crown.y + i * refUnit;
-        if (y >= 0 && y <= h) {
-          ctx.beginPath();
-          ctx.moveTo(0, y);
-          ctx.lineTo(w, y);
-          ctx.stroke();
-          ctx.fillText(labels[i], 5, y - 4);
+        const labels = ['0-Crown', '1-Chin', '2-Nipple', '3-Navel', '4-Crotch', '5', '6-Knee', '7', '8-Feet'];
+
+        // Draw grid lines that respect perspective
+        for (let i = 0; i <= 8; i++) {
+          // Calculate 3D position for this proportion level
+          if (landmarks.crown.z !== undefined && perspectiveSystem) {
+            // In 3D mode, project the horizontal line at each level
+            const z = landmarks.crown.z;
+            const baseY = landmarks.crown.y;
+
+            // Sample points across the width for the grid line
+            ctx.beginPath();
+            for (let x = -w/2; x <= w/2; x += 50) {
+              const pt3d = new Vec3(x, baseY + i * refUnit / crownProj.scale, z);
+              const proj = perspectiveSystem.project(pt3d);
+              if (proj.visible) {
+                if (x === -w/2) {
+                  ctx.moveTo(proj.x, proj.y);
+                } else {
+                  ctx.lineTo(proj.x, proj.y);
+                }
+              }
+            }
+            ctx.stroke();
+
+            // Label
+            const labelPt3d = new Vec3(-w/2 + 100, baseY + i * refUnit / crownProj.scale, z);
+            const labelProj = perspectiveSystem.project(labelPt3d);
+            if (labelProj.visible) {
+              ctx.fillText(labels[i], labelProj.x, labelProj.y - 4);
+            }
+          } else {
+            // 2D fallback
+            const y = crownProj.y + i * refUnit;
+            if (y >= 0 && y <= h) {
+              ctx.beginPath();
+              ctx.moveTo(0, y);
+              ctx.lineTo(w, y);
+              ctx.stroke();
+              ctx.fillText(labels[i], 5, y - 4);
+            }
+          }
         }
+        ctx.setLineDash([]);
       }
-      ctx.setLineDash([]);
     }
 
     // Draw skeleton
