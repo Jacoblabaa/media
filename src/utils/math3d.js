@@ -373,6 +373,18 @@ export class Primitive3D {
       case 'pyramid':
         this.generatePyramid();
         break;
+      case 'wedge':
+        this.generateWedge();
+        break;
+      case 'torus':
+        this.generateTorus();
+        break;
+      case 'capsule':
+        this.generateCapsule();
+        break;
+      case 'octahedron':
+        this.generateOctahedron();
+        break;
     }
   }
 
@@ -494,6 +506,110 @@ export class Primitive3D {
     ];
     this.faces = [
       [0, 1, 2], [0, 2, 3], [0, 3, 4], [0, 4, 1], [1, 2, 3, 4]
+    ];
+  }
+
+  generateWedge() {
+    const w = 60, h = 50, d = 50;
+    this.vertices = [
+      new Vec3(-w, -h, -d), new Vec3(w, -h, -d),
+      new Vec3(w, -h, d), new Vec3(-w, -h, d),
+      new Vec3(-w, h, 0), new Vec3(w, h, 0)
+    ];
+    this.edges = [
+      [0, 1], [1, 2], [2, 3], [3, 0],
+      [4, 5], [0, 4], [1, 5], [2, 5], [3, 4]
+    ];
+    this.faces = [
+      [0, 1, 2, 3], [0, 1, 5, 4], [2, 3, 4, 5]
+    ];
+  }
+
+  generateTorus(segments = 16, tubeSegments = 12) {
+    this.vertices = [];
+    this.edges = [];
+    const radius = 40;
+    const tubeRadius = 15;
+
+    for (let i = 0; i <= segments; i++) {
+      const u = (i / segments) * Math.PI * 2;
+      for (let j = 0; j <= tubeSegments; j++) {
+        const v = (j / tubeSegments) * Math.PI * 2;
+        const x = (radius + tubeRadius * Math.cos(v)) * Math.cos(u);
+        const y = tubeRadius * Math.sin(v);
+        const z = (radius + tubeRadius * Math.cos(v)) * Math.sin(u);
+        this.vertices.push(new Vec3(x, y, z));
+      }
+    }
+
+    for (let i = 0; i < segments; i++) {
+      for (let j = 0; j < tubeSegments; j++) {
+        const first = i * (tubeSegments + 1) + j;
+        const second = first + tubeSegments + 1;
+        this.edges.push([first, first + 1]);
+        this.edges.push([first, second]);
+      }
+    }
+  }
+
+  generateCapsule(segments = 16) {
+    this.vertices = [];
+    this.edges = [];
+    const radius = 30;
+    const height = 60;
+
+    // Top hemisphere
+    for (let lat = 0; lat <= segments / 2; lat++) {
+      const theta = (lat * Math.PI) / segments;
+      for (let lon = 0; lon <= segments; lon++) {
+        const phi = (lon * 2 * Math.PI) / segments;
+        const x = Math.cos(phi) * Math.sin(theta) * radius;
+        const y = Math.cos(theta) * radius + height / 2;
+        const z = Math.sin(phi) * Math.sin(theta) * radius;
+        this.vertices.push(new Vec3(x, y, z));
+      }
+    }
+
+    // Bottom hemisphere
+    for (let lat = segments / 2; lat <= segments; lat++) {
+      const theta = (lat * Math.PI) / segments;
+      for (let lon = 0; lon <= segments; lon++) {
+        const phi = (lon * 2 * Math.PI) / segments;
+        const x = Math.cos(phi) * Math.sin(theta) * radius;
+        const y = Math.cos(theta) * radius - height / 2;
+        const z = Math.sin(phi) * Math.sin(theta) * radius;
+        this.vertices.push(new Vec3(x, y, z));
+      }
+    }
+
+    // Generate edges
+    const lats = segments + 1;
+    const lons = segments + 1;
+    for (let lat = 0; lat < lats - 1; lat++) {
+      for (let lon = 0; lon < lons - 1; lon++) {
+        const first = lat * lons + lon;
+        const second = first + lons;
+        this.edges.push([first, first + 1]);
+        this.edges.push([first, second]);
+      }
+    }
+  }
+
+  generateOctahedron() {
+    const s = 60;
+    this.vertices = [
+      new Vec3(0, s, 0), new Vec3(0, -s, 0),
+      new Vec3(s, 0, 0), new Vec3(-s, 0, 0),
+      new Vec3(0, 0, s), new Vec3(0, 0, -s)
+    ];
+    this.edges = [
+      [0, 2], [0, 3], [0, 4], [0, 5],
+      [1, 2], [1, 3], [1, 4], [1, 5],
+      [2, 4], [4, 3], [3, 5], [5, 2]
+    ];
+    this.faces = [
+      [0, 2, 4], [0, 4, 3], [0, 3, 5], [0, 5, 2],
+      [1, 4, 2], [1, 3, 4], [1, 5, 3], [1, 2, 5]
     ];
   }
 

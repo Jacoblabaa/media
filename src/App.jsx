@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Vec3, Matrix4, PerspectiveSystem, Primitive3D, MathUtils } from './utils/math3d.js';
+import { Gizmo3D } from './utils/gizmo3d.js';
 import {
   HumanLandmarks,
   HumanLimbSegments,
@@ -35,6 +36,17 @@ export default function App() {
   const [showGroundPlane, setShowGroundPlane] = useState(true);
   const [showShadows, setShowShadows] = useState(true);
   const [lightDirection, setLightDirection] = useState({ x: -0.5, y: -1, z: -0.5 }); // Directional light
+  const [showMeasurements, setShowMeasurements] = useState(true);
+
+  // Gizmo
+  const gizmoRef = useRef(new Gizmo3D());
+  const [draggedGizmoAxis, setDraggedGizmoAxis] = useState(null);
+  const [gizmoDragStart, setGizmoDragStart] = useState(null);
+
+  // Camera controls
+  const [cameraDistance, setCameraDistance] = useState(500);
+  const [cameraRotation, setCameraRotation] = useState({ x: 0, y: 0 });
+  const [cameraPan, setCameraPan] = useState({ x: 0, y: 0 });
 
   // Perspective
   const [perspectiveType, setPerspectiveType] = useState('2pt');
@@ -95,6 +107,13 @@ export default function App() {
     ps.setVanishingPoints(vanishingPoints);
     setPerspectiveSystem(ps);
   }, [perspectiveType, canvasSize, horizonY, vanishingPoints]);
+
+  // Sync gizmo mode with manipulation mode
+  useEffect(() => {
+    if (gizmoRef.current) {
+      gizmoRef.current.mode = manipulationMode;
+    }
+  }, [manipulationMode]);
 
   // Handle image upload
   const handleImageUpload = useCallback((e) => {
@@ -236,11 +255,19 @@ export default function App() {
       return;
     }
 
-    // Manipulating selected form
-    if (selectedForm !== null && activeTab === '3d-forms') {
-      // Form manipulation will happen in mouse move
+    // Manipulating selected form with gizmo
+    if (selectedForm !== null && activeTab === '3d-forms' && perspectiveSystem) {
+      const form = forms[selectedForm];
+      if (form) {
+        const gizmo = gizmoRef.current;
+        const hitAxis = gizmo.hitTest(pt, form.position, perspectiveSystem);
+        if (hitAxis) {
+          setDraggedGizmoAxis(hitAxis);
+          setGizmoDragStart(pt);
+        }
+      }
     }
-  }, [activeTab, editingLandmark, editingVP, measuring, vanishingPoints, selectedForm, getPoint]);
+  }, [activeTab, editingLandmark, editingVP, measuring, vanishingPoints, selectedForm, forms, perspectiveSystem, getPoint]);
 
   // Handle mouse move
   const handleMouseMove = useCallback((e) => {
@@ -273,7 +300,41 @@ export default function App() {
       return;
     }
 
-    // Manipulating form
+    // Manipulating form with gizmo
+    if (draggedGizmoAxis && gizmoDragStart && selectedForm !== null && perspectiveSystem) {
+      const form = forms[selectedForm];
+      if (form) {
+        const gizmo = gizmoRef.current;
+        const delta = gizmo.calculateDrag(gizmoDragStart, pt, draggedGizmoAxis, form.position, perspectiveSystem, manipulationMode);
+
+        if (delta) {
+          setForms(prev => prev.map((f, i) => {
+            if (i !== selectedForm) return f;
+
+            if (manipulationMode === 'move') {
+              return { ...f, position: f.position.add(delta) };
+            } else if (manipulationMode === 'rotate') {
+              return { ...f, rotation: new Vec3(
+                f.rotation.x + delta.x,
+                f.rotation.y + delta.y,
+                f.rotation.z + delta.z
+              )};
+            } else if (manipulationMode === 'scale') {
+              return { ...f, scale: new Vec3(
+                f.scale.x * delta.x,
+                f.scale.y * delta.y,
+                f.scale.z * delta.z
+              )};
+            }
+            return f;
+          }));
+          setGizmoDragStart(pt);
+        }
+      }
+      return;
+    }
+
+    // Legacy form manipulation (if not using gizmo)
     if (selectedForm !== null && dragStart) {
       const dx = pt.x - dragStart.x;
       const dy = pt.y - dragStart.y;
@@ -323,6 +384,8 @@ export default function App() {
     setDragStart(null);
     setDraggedVP(null);
     setIsDrawingGesture(false);
+    setDraggedGizmoAxis(null);
+    setGizmoDragStart(null);
 
     if (drawingPerspLine && MathUtils.distance2D(drawingPerspLine.start, drawingPerspLine.end) > 15) {
       setPerspectiveLines(prev => [...prev, { ...drawingPerspLine, id: Date.now() }]);
@@ -585,48 +648,38 @@ export default function App() {
         }
       }
 
-      // Draw axes if selected
-      if (isSelected && show3DAxes) {
+      // Draw gizmo if selected
+      if (isSelected) {
         const origin = perspectiveSystem.project(form.position);
-        const axisLength = 60;
+        const gizmo = gizmoRef.current;
+        gizmo.draw(ctx, form.position, origin, perspectiveSystem);
+      }
 
-        // X axis (red)
-        const xEnd = perspectiveSystem.project(
-          form.position.add(new Vec3(axisLength, 0, 0))
-        );
-        ctx.strokeStyle = '#ff0000';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(origin.x, origin.y);
-        ctx.lineTo(xEnd.x, xEnd.y);
-        ctx.stroke();
-        ctx.fillStyle = '#ff0000';
-        ctx.font = 'bold 14px sans-serif';
-        ctx.fillText('X', xEnd.x + 5, xEnd.y);
+      // Draw measurements if enabled
+      if (showMeasurements) {
+        const bounds = form.getTransformedVertices().reduce((acc, v) => ({
+          minX: Math.min(acc.minX, v.x),
+          maxX: Math.max(acc.maxX, v.x),
+          minY: Math.min(acc.minY, v.y),
+          maxY: Math.max(acc.maxY, v.y),
+          minZ: Math.min(acc.minZ, v.z),
+          maxZ: Math.max(acc.maxZ, v.z)
+        }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity });
 
-        // Y axis (green)
-        const yEnd = perspectiveSystem.project(
-          form.position.add(new Vec3(0, axisLength, 0))
-        );
-        ctx.strokeStyle = '#00ff00';
-        ctx.beginPath();
-        ctx.moveTo(origin.x, origin.y);
-        ctx.lineTo(yEnd.x, yEnd.y);
-        ctx.stroke();
-        ctx.fillStyle = '#00ff00';
-        ctx.fillText('Y', yEnd.x + 5, yEnd.y);
+        const width = Math.abs(bounds.maxX - bounds.minX);
+        const height = Math.abs(bounds.maxY - bounds.minY);
+        const depth = Math.abs(bounds.maxZ - bounds.minZ);
 
-        // Z axis (blue)
-        const zEnd = perspectiveSystem.project(
-          form.position.add(new Vec3(0, 0, axisLength))
-        );
-        ctx.strokeStyle = '#0000ff';
-        ctx.beginPath();
-        ctx.moveTo(origin.x, origin.y);
-        ctx.lineTo(zEnd.x, zEnd.y);
-        ctx.stroke();
-        ctx.fillStyle = '#0000ff';
-        ctx.fillText('Z', zEnd.x + 5, zEnd.y);
+        const formCenter = perspectiveSystem.project(form.position);
+        if (formCenter.visible) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+          ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+          ctx.lineWidth = 3;
+          ctx.font = 'bold 11px monospace';
+          const measurements = `W:${width.toFixed(0)} H:${height.toFixed(0)} D:${depth.toFixed(0)}`;
+          ctx.strokeText(measurements, formCenter.x - 50, formCenter.y - 80);
+          ctx.fillText(measurements, formCenter.x - 50, formCenter.y - 80);
+        }
       }
     });
 
@@ -1224,6 +1277,10 @@ export default function App() {
                 setShowGroundPlane={setShowGroundPlane}
                 showShadows={showShadows}
                 setShowShadows={setShowShadows}
+                showMeasurements={showMeasurements}
+                setShowMeasurements={setShowMeasurements}
+                lightDirection={lightDirection}
+                setLightDirection={setLightDirection}
               />
             )}
 
@@ -1350,8 +1407,8 @@ export default function App() {
 }
 
 // Panel Components
-function Forms3DPanel({ formType, setFormType, placingForm, setPlacingForm, forms, selectedForm, setSelectedForm, setForms, manipulationMode, setManipulationMode, show3DAxes, setShow3DAxes, showConstruction, setShowConstruction, showGroundPlane, setShowGroundPlane, showShadows, setShowShadows }) {
-  const formTypes = ['cube', 'sphere', 'cylinder', 'cone', 'pyramid'];
+function Forms3DPanel({ formType, setFormType, placingForm, setPlacingForm, forms, selectedForm, setSelectedForm, setForms, manipulationMode, setManipulationMode, show3DAxes, setShow3DAxes, showConstruction, setShowConstruction, showGroundPlane, setShowGroundPlane, showShadows, setShowShadows, showMeasurements, setShowMeasurements, lightDirection, setLightDirection }) {
+  const formTypes = ['cube', 'sphere', 'cylinder', 'cone', 'pyramid', 'wedge', 'torus', 'capsule', 'octahedron'];
 
   return (
     <div className="panel">
@@ -1414,10 +1471,6 @@ function Forms3DPanel({ formType, setFormType, placingForm, setPlacingForm, form
       <div className="panel-section">
         <h3>Display</h3>
         <label className="checkbox">
-          <input type="checkbox" checked={show3DAxes} onChange={e => setShow3DAxes(e.target.checked)} />
-          Show 3D Axes
-        </label>
-        <label className="checkbox">
           <input type="checkbox" checked={showConstruction} onChange={e => setShowConstruction(e.target.checked)} />
           Construction Lines
         </label>
@@ -1429,7 +1482,53 @@ function Forms3DPanel({ formType, setFormType, placingForm, setPlacingForm, form
           <input type="checkbox" checked={showShadows} onChange={e => setShowShadows(e.target.checked)} />
           Shadows
         </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={showMeasurements} onChange={e => setShowMeasurements(e.target.checked)} />
+          Measurements
+        </label>
       </div>
+
+      {showShadows && (
+        <div className="panel-section">
+          <h3>Lighting</h3>
+          <label className="slider-label">
+            Light Direction X
+            <input
+              type="range"
+              min="-1"
+              max="1"
+              step="0.1"
+              value={lightDirection.x}
+              onChange={e => setLightDirection(prev => ({ ...prev, x: parseFloat(e.target.value) }))}
+            />
+            <span>{lightDirection.x.toFixed(1)}</span>
+          </label>
+          <label className="slider-label">
+            Light Direction Y
+            <input
+              type="range"
+              min="-1"
+              max="1"
+              step="0.1"
+              value={lightDirection.y}
+              onChange={e => setLightDirection(prev => ({ ...prev, y: parseFloat(e.target.value) }))}
+            />
+            <span>{lightDirection.y.toFixed(1)}</span>
+          </label>
+          <label className="slider-label">
+            Light Direction Z
+            <input
+              type="range"
+              min="-1"
+              max="1"
+              step="0.1"
+              value={lightDirection.z}
+              onChange={e => setLightDirection(prev => ({ ...prev, z: parseFloat(e.target.value) }))}
+            />
+            <span>{lightDirection.z.toFixed(1)}</span>
+          </label>
+        </div>
+      )}
 
       {forms.length > 0 && (
         <div className="panel-section">
