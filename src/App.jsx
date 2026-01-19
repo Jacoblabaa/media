@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Vec3, Matrix4, PerspectiveSystem, Primitive3D, MathUtils } from './utils/math3d.js';
 import { Gizmo3D } from './utils/gizmo3d.js';
+import { IntersectionDetector, DepthSorter } from './utils/intersections.js';
 import { getContextualTip, getRandomTip } from './systems/educational.js';
 import {
   HumanLandmarks,
@@ -38,6 +39,8 @@ export default function App() {
   const [showShadows, setShowShadows] = useState(true);
   const [lightDirection, setLightDirection] = useState({ x: -0.5, y: -1, z: -0.5 }); // Directional light
   const [showMeasurements, setShowMeasurements] = useState(true);
+  const [showIntersections, setShowIntersections] = useState(true);
+  const [useDepthSorting, setUseDepthSorting] = useState(true);
 
   // Gizmo
   const gizmoRef = useRef(new Gizmo3D());
@@ -622,7 +625,13 @@ export default function App() {
       }
     }
 
-    forms.forEach((form, index) => {
+    // Depth sort forms for proper occlusion
+    const cameraPos = new Vec3(0, 0, -cameraDistance);
+    const formsToRender = useDepthSorting
+      ? DepthSorter.sortByDepth(forms, cameraPos)
+      : forms.map((form, index) => ({ form, index }));
+
+    formsToRender.forEach(({ form, index }) => {
       const isSelected = index === selectedForm;
       const transformed = form.getTransformedVertices();
 
@@ -740,6 +749,61 @@ export default function App() {
         }
       }
     });
+
+    // Draw form intersections
+    if (showIntersections && forms.length > 1) {
+      const intersections = IntersectionDetector.getAllIntersections(forms);
+
+      intersections.forEach(({ form1Index, form2Index }) => {
+        try {
+          const viz = IntersectionDetector.getIntersectionVisualization(
+            forms[form1Index],
+            forms[form2Index],
+            perspectiveSystem
+          );
+
+          if (viz.circlePoints.length > 2) {
+            // Draw intersection line
+            ctx.strokeStyle = '#ffaa00';
+            ctx.lineWidth = 4;
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.moveTo(viz.circlePoints[0].x, viz.circlePoints[0].y);
+            viz.circlePoints.forEach(p => ctx.lineTo(p.x, p.y));
+            ctx.closePath();
+            ctx.stroke();
+
+            // Draw intersection badge
+            if (viz.midpoint.visible) {
+              ctx.fillStyle = 'rgba(255, 170, 0, 0.9)';
+              ctx.strokeStyle = '#000';
+              ctx.lineWidth = 2;
+              ctx.font = 'bold 12px sans-serif';
+              ctx.beginPath();
+              ctx.arc(viz.midpoint.x, viz.midpoint.y, 12, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.stroke();
+              ctx.fillStyle = '#000';
+              ctx.fillText('⚡', viz.midpoint.x - 5, viz.midpoint.y + 5);
+            }
+          }
+        } catch (e) {
+          // Skip if intersection calculation fails
+          console.warn('Intersection calc failed:', e);
+        }
+      });
+
+      // Show intersection count
+      if (intersections.length > 0) {
+        ctx.fillStyle = 'rgba(255, 170, 0, 0.9)';
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2;
+        ctx.font = 'bold 14px sans-serif';
+        const countText = `${intersections.length} Intersection${intersections.length > 1 ? 's' : ''}`;
+        ctx.strokeText(countText, 10, h - 20);
+        ctx.fillText(countText, 10, h - 20);
+      }
+    }
 
     // Show placement preview when user is placing a form
     if (placingForm) {
@@ -1344,6 +1408,10 @@ export default function App() {
                 setShowShadows={setShowShadows}
                 showMeasurements={showMeasurements}
                 setShowMeasurements={setShowMeasurements}
+                showIntersections={showIntersections}
+                setShowIntersections={setShowIntersections}
+                useDepthSorting={useDepthSorting}
+                setUseDepthSorting={setUseDepthSorting}
                 lightDirection={lightDirection}
                 setLightDirection={setLightDirection}
               />
@@ -1516,7 +1584,7 @@ export default function App() {
 }
 
 // Panel Components
-function Forms3DPanel({ formType, setFormType, placingForm, setPlacingForm, forms, selectedForm, setSelectedForm, setForms, manipulationMode, setManipulationMode, show3DAxes, setShow3DAxes, showConstruction, setShowConstruction, showGroundPlane, setShowGroundPlane, showShadows, setShowShadows, showMeasurements, setShowMeasurements, lightDirection, setLightDirection }) {
+function Forms3DPanel({ formType, setFormType, placingForm, setPlacingForm, forms, selectedForm, setSelectedForm, setForms, manipulationMode, setManipulationMode, show3DAxes, setShow3DAxes, showConstruction, setShowConstruction, showGroundPlane, setShowGroundPlane, showShadows, setShowShadows, showMeasurements, setShowMeasurements, showIntersections, setShowIntersections, useDepthSorting, setUseDepthSorting, lightDirection, setLightDirection }) {
   const formTypes = ['cube', 'sphere', 'cylinder', 'cone', 'pyramid', 'wedge', 'torus', 'capsule', 'octahedron'];
 
   return (
@@ -1594,6 +1662,14 @@ function Forms3DPanel({ formType, setFormType, placingForm, setPlacingForm, form
         <label className="checkbox">
           <input type="checkbox" checked={showMeasurements} onChange={e => setShowMeasurements(e.target.checked)} />
           Measurements
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={showIntersections} onChange={e => setShowIntersections(e.target.checked)} />
+          Show Intersections
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={useDepthSorting} onChange={e => setUseDepthSorting(e.target.checked)} />
+          Depth Sorting
         </label>
       </div>
 
