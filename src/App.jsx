@@ -1330,20 +1330,32 @@ export default function App() {
 
     // Draw masses
     if (showMasses) {
+      console.log('Drawing masses, refUnit:', refUnit, 'currentSegments:', currentSegments.length);
+      let massesDrawn = 0;
+
       // For each limb segment with both endpoints
       currentSegments.forEach(seg => {
-        if (!landmarks[seg.from] || !landmarks[seg.to]) return;
+        if (!landmarks[seg.from] || !landmarks[seg.to]) {
+          console.log(`Skipping segment ${seg.id}: missing landmarks (${seg.from}, ${seg.to})`);
+          return;
+        }
 
         const p1 = projectLandmark(landmarks[seg.from]);
         const p2 = projectLandmark(landmarks[seg.to]);
-        if (!p1 || !p2) return;
+        if (!p1 || !p2) {
+          console.log(`Skipping segment ${seg.id}: projection failed`);
+          return;
+        }
+
+        massesDrawn++;
+        console.log(`Drawing mass for ${seg.id}: ${seg.from}->${seg.to}, thickness=${seg.thickness}`);
 
         const avgScale = (p1.scale + p2.scale) / 2;
         const avgDepth = ((landmarks[seg.from].z || 300) + (landmarks[seg.to].z || 300)) / 2;
         const depthAlpha = Math.max(0.2, Math.min(0.8, 1.0 - (avgDepth - 200) / 400));
 
-        ctx.fillStyle = `rgba(150, 200, 255, ${depthAlpha * 0.15})`;
-        ctx.strokeStyle = `rgba(150, 200, 255, ${depthAlpha * 0.7})`;
+        ctx.fillStyle = `rgba(150, 200, 255, ${depthAlpha * 0.3})`;
+        ctx.strokeStyle = `rgba(150, 200, 255, ${depthAlpha * 0.9})`;
         ctx.lineWidth = 2 * avgScale;
 
         const angle = AnatomyUtils.angle(p1, p2);
@@ -1419,6 +1431,8 @@ export default function App() {
           ctx.fillText(fs.toward ? 'TOWARD' : 'AWAY', mid.x + 15, mid.y - 18);
         }
       });
+
+      console.log(`Total masses drawn: ${massesDrawn} out of ${currentSegments.length} segments`);
     }
 
     // Draw gesture line
@@ -1435,17 +1449,22 @@ export default function App() {
 
     // Draw landmarks
     Object.entries(landmarks).forEach(([key, pt]) => {
+      const projected = projectLandmark(pt);
+      if (!projected) return;
+
       const cfg = currentLandmarks.find(l => l.key === key);
+      const radius = 6 * projected.scale;
+
       ctx.fillStyle = cfg?.color || '#fff';
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+      ctx.arc(projected.x, projected.y, radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
       ctx.fillStyle = '#fff';
-      ctx.font = '10px sans-serif';
-      ctx.fillText(cfg?.name || key, pt.x + 10, pt.y + 4);
+      ctx.font = `${10 * projected.scale}px sans-serif`;
+      ctx.fillText(cfg?.name || key, projected.x + 10, projected.y + 4);
     });
 
     // Update analysis notes
@@ -2620,19 +2639,34 @@ function AnatomyPanel({ anatomyMode, setAnatomyMode, quadrupedType, setQuadruped
           <div className="btn-group" style={{ flexDirection: 'column', gap: '4px' }}>
             <button
               className="btn btn-secondary btn-sm"
-              onClick={() => setLandmarks(PoseTemplates.human.tPose.landmarks)}
+              onClick={() => {
+                const pose = PoseTemplates.human.tPose.landmarks;
+                console.log('Loading T-Pose template:', pose);
+                console.log('Landmark count:', Object.keys(pose).length);
+                setLandmarks(pose);
+              }}
             >
               T-Pose (Neutral)
             </button>
             <button
               className="btn btn-secondary btn-sm"
-              onClick={() => setLandmarks(PoseTemplates.human.actionPose.landmarks)}
+              onClick={() => {
+                const pose = PoseTemplates.human.actionPose.landmarks;
+                console.log('Loading Action Pose template:', pose);
+                console.log('Landmark count:', Object.keys(pose).length);
+                setLandmarks(pose);
+              }}
             >
               Action (Running)
             </button>
             <button
               className="btn btn-secondary btn-sm"
-              onClick={() => setLandmarks(PoseTemplates.human.contrapposto.landmarks)}
+              onClick={() => {
+                const pose = PoseTemplates.human.contrapposto.landmarks;
+                console.log('Loading Contrapposto template:', pose);
+                console.log('Landmark count:', Object.keys(pose).length);
+                setLandmarks(pose);
+              }}
             >
               Contrapposto (Classical)
             </button>
@@ -2642,6 +2676,11 @@ function AnatomyPanel({ anatomyMode, setAnatomyMode, quadrupedType, setQuadruped
 
       <div className="panel-section">
         <h3>Landmarks</h3>
+        <div style={{ padding: '8px', background: 'rgba(100, 200, 255, 0.1)', borderRadius: '4px', marginBottom: '8px', fontSize: '11px' }}>
+          <div>Active Landmarks: <strong>{Object.keys(landmarks).length}</strong></div>
+          <div>Skeleton: <span style={{ color: showSkeleton ? '#00ff00' : '#ff4444' }}>{showSkeleton ? 'ON' : 'OFF'}</span></div>
+          <div>Masses: <span style={{ color: showMasses ? '#00ff00' : '#ff4444' }}>{showMasses ? 'ON' : 'OFF'}</span></div>
+        </div>
         <p className="hint">{anatomyMode === 'human' ? 'Start with Crown + Chin' : 'Start with Skull + Withers'}</p>
 
         <label className="slider-label">
