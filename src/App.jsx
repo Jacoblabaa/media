@@ -157,6 +157,38 @@ export default function App() {
     }
   }, [vanishingPoints, perspectiveSystem]);
 
+  // Create form renderer (memoized to avoid recreation)
+  // IMPORTANT: Must be defined BEFORE the render useEffect that references it
+  const formRenderer = useMemo(() => {
+    if (!perspectiveSystem) return null;
+    const renderer = new FormRenderer(perspectiveSystem);
+    renderer.showEdges = true;
+    renderer.showFaces = true;
+    renderer.showCrossContours = showCrossContours;
+    return renderer;
+  }, [perspectiveSystem, showCrossContours]);
+
+  // Create Mannequin instance (memoized) for Bridgman-style rendering
+  // IMPORTANT: Must be defined BEFORE the render useEffect that references it
+  const mannequinRef = useRef(null);
+  const mannequin = useMemo(() => {
+    if (!Object.keys(landmarks).length) return null;
+
+    // Calculate head size from landmarks if available
+    let headSize = 50;
+    if (landmarks.crown && landmarks.chin) {
+      const dx = landmarks.chin.x - landmarks.crown.x;
+      const dy = landmarks.chin.y - landmarks.crown.y;
+      const dz = (landmarks.chin.z || 300) - (landmarks.crown.z || 300);
+      headSize = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    const m = new Mannequin(8, { headSize: Math.max(30, headSize) });
+    m.updateFromLandmarks(landmarks);
+    mannequinRef.current = m;
+    return m;
+  }, [landmarks]);
+
   // Test cube removed - canvas starts blank as expected
 
   // Sync gizmo mode with manipulation mode
@@ -1119,36 +1151,6 @@ export default function App() {
     // Otherwise use 2D coordinates directly (legacy 2D mode)
     return { x: pt.x, y: pt.y, scale: 1 };
   };
-
-  // Create form renderer (memoized to avoid recreation)
-  const formRenderer = useMemo(() => {
-    if (!perspectiveSystem) return null;
-    const renderer = new FormRenderer(perspectiveSystem);
-    renderer.showEdges = true;
-    renderer.showFaces = true;
-    renderer.showCrossContours = showCrossContours;
-    return renderer;
-  }, [perspectiveSystem, showCrossContours]);
-
-  // Create Mannequin instance (memoized) for Bridgman-style rendering
-  const mannequinRef = useRef(null);
-  const mannequin = useMemo(() => {
-    if (!Object.keys(landmarks).length) return null;
-
-    // Calculate head size from landmarks if available
-    let headSize = 50;
-    if (landmarks.crown && landmarks.chin) {
-      const dx = landmarks.chin.x - landmarks.crown.x;
-      const dy = landmarks.chin.y - landmarks.crown.y;
-      const dz = (landmarks.chin.z || 300) - (landmarks.crown.z || 300);
-      headSize = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    }
-
-    const m = new Mannequin(8, { headSize: Math.max(30, headSize) });
-    m.updateFromLandmarks(landmarks);
-    mannequinRef.current = m;
-    return m;
-  }, [landmarks]);
 
   // Draw volumetric 3D forms between landmarks using new renderer
   const drawAnatomyForms = (ctx, w, h) => {
