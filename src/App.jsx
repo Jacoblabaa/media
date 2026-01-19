@@ -316,8 +316,13 @@ export default function App() {
       let nearestDepth = Infinity;
 
       forms.forEach((form, index) => {
-        const vertices = form.getTransformedVertices();
-        const projected = vertices.map(v => perspectiveSystem.project(v));
+        try {
+          if (!form || !form.getTransformedVertices) {
+            console.error(`Form ${index} is invalid:`, form);
+            return;
+          }
+          const vertices = form.getTransformedVertices();
+          const projected = vertices.map(v => perspectiveSystem.project(v));
 
         // Calculate 2D bounding box
         const validPoints = projected.filter(p => p.visible);
@@ -346,6 +351,9 @@ export default function App() {
             nearestDepth = depth;
             clickedFormIndex = index;
           }
+        }
+        } catch (error) {
+          console.error(`Error checking form ${index}:`, error, form);
         }
       });
 
