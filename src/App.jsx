@@ -42,6 +42,9 @@ export default function App() {
   const [showMeasurements, setShowMeasurements] = useState(true);
   const [showIntersections, setShowIntersections] = useState(true);
   const [useDepthSorting, setUseDepthSorting] = useState(true);
+  const [booleanMode, setBooleanMode] = useState(false);
+  const [booleanSelection, setBooleanSelection] = useState([]); // Array of form indices
+  const [booleanOperation, setBooleanOperation] = useState(null); // 'union', 'subtract', 'intersect'
 
   // Gizmo
   const gizmoRef = useRef(new Gizmo3D());
@@ -336,9 +339,25 @@ export default function App() {
         }
       });
 
-      setSelectedForm(clickedFormIndex);
+      // Boolean mode: multi-select
+      if (booleanMode && clickedFormIndex !== null) {
+        setBooleanSelection(prev => {
+          if (prev.includes(clickedFormIndex)) {
+            // Deselect
+            return prev.filter(i => i !== clickedFormIndex);
+          } else {
+            // Select (max 2 for binary operations)
+            if (prev.length < 2) {
+              return [...prev, clickedFormIndex];
+            }
+            return prev;
+          }
+        });
+      } else {
+        setSelectedForm(clickedFormIndex);
+      }
     }
-  }, [placingForm, formType, perspectiveSystem, canvasSize, editingLandmark, editingVP, placingFocal, forms, activeTab, getPoint]);
+  }, [placingForm, formType, perspectiveSystem, canvasSize, editingLandmark, editingVP, placingFocal, forms, activeTab, booleanMode, getPoint]);
 
   // Handle mouse down
   const handleMouseDown = useCallback((e) => {
@@ -1594,6 +1613,12 @@ export default function App() {
                 setUseDepthSorting={setUseDepthSorting}
                 lightDirection={lightDirection}
                 setLightDirection={setLightDirection}
+                booleanMode={booleanMode}
+                setBooleanMode={setBooleanMode}
+                booleanSelection={booleanSelection}
+                setBooleanSelection={setBooleanSelection}
+                booleanOperation={booleanOperation}
+                setBooleanOperation={setBooleanOperation}
               />
             )}
 
@@ -1817,7 +1842,7 @@ export default function App() {
 }
 
 // Panel Components
-function Forms3DPanel({ formType, setFormType, placingForm, setPlacingForm, forms, selectedForm, setSelectedForm, setForms, manipulationMode, setManipulationMode, show3DAxes, setShow3DAxes, showConstruction, setShowConstruction, showGroundPlane, setShowGroundPlane, showShadows, setShowShadows, showMeasurements, setShowMeasurements, showIntersections, setShowIntersections, useDepthSorting, setUseDepthSorting, lightDirection, setLightDirection }) {
+function Forms3DPanel({ formType, setFormType, placingForm, setPlacingForm, forms, selectedForm, setSelectedForm, setForms, manipulationMode, setManipulationMode, show3DAxes, setShow3DAxes, showConstruction, setShowConstruction, showGroundPlane, setShowGroundPlane, showShadows, setShowShadows, showMeasurements, setShowMeasurements, showIntersections, setShowIntersections, useDepthSorting, setUseDepthSorting, lightDirection, setLightDirection, booleanMode, setBooleanMode, booleanSelection, setBooleanSelection, booleanOperation, setBooleanOperation }) {
   const formTypes = ['cube', 'sphere', 'cylinder', 'cone', 'pyramid', 'wedge', 'torus', 'capsule', 'octahedron'];
 
   return (
@@ -1841,6 +1866,55 @@ function Forms3DPanel({ formType, setFormType, placingForm, setPlacingForm, form
         >
           {placingForm ? 'Click to Place...' : `Add ${formType}`}
         </button>
+      </div>
+
+      <div className="panel-section">
+        <h3>Boolean Operations</h3>
+        <p style={{ fontSize: '11px', color: '#aaa', marginBottom: '8px' }}>
+          Combine forms (union, subtract, intersect)
+        </p>
+        <button
+          className={`btn ${booleanMode ? 'btn-active' : ''}`}
+          onClick={() => {
+            setBooleanMode(!booleanMode);
+            setBooleanSelection([]);
+            setBooleanOperation(null);
+          }}
+        >
+          {booleanMode ? '✓ Boolean Mode Active' : 'Enable Boolean Mode'}
+        </button>
+
+        {booleanMode && (
+          <div style={{ marginTop: '8px' }}>
+            <div style={{ fontSize: '11px', color: '#888', marginBottom: '6px' }}>
+              Selected: {booleanSelection.length}/2 forms
+              {booleanSelection.length > 0 && ` (${booleanSelection.map(i => i + 1).join(', ')})`}
+            </div>
+
+            {booleanSelection.length === 2 && (
+              <div className="btn-group" style={{ flexDirection: 'column', gap: '4px' }}>
+                <button
+                  className={`btn btn-secondary btn-sm ${booleanOperation === 'union' ? 'btn-active' : ''}`}
+                  onClick={() => setBooleanOperation(booleanOperation === 'union' ? null : 'union')}
+                >
+                  Union (Merge)
+                </button>
+                <button
+                  className={`btn btn-secondary btn-sm ${booleanOperation === 'subtract' ? 'btn-active' : ''}`}
+                  onClick={() => setBooleanOperation(booleanOperation === 'subtract' ? null : 'subtract')}
+                >
+                  Subtract (Cut)
+                </button>
+                <button
+                  className={`btn btn-secondary btn-sm ${booleanOperation === 'intersect' ? 'btn-active' : ''}`}
+                  onClick={() => setBooleanOperation(booleanOperation === 'intersect' ? null : 'intersect')}
+                >
+                  Intersect (Overlap)
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {selectedForm !== null && (
