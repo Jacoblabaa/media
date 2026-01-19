@@ -2149,6 +2149,35 @@ function AnatomyPanel({ anatomyMode, setAnatomyMode, quadrupedType, setQuadruped
         </div>
       )}
 
+      {anatomyMode === 'human' && (
+        <div className="panel-section">
+          <h3>Pose Templates</h3>
+          <p style={{ fontSize: '11px', color: '#aaa', marginBottom: '8px' }}>
+            Load pre-made poses with 3D landmarks
+          </p>
+          <div className="btn-group" style={{ flexDirection: 'column', gap: '4px' }}>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setLandmarks(PoseTemplates.human.tPose.landmarks)}
+            >
+              T-Pose (Neutral)
+            </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setLandmarks(PoseTemplates.human.actionPose.landmarks)}
+            >
+              Action (Running)
+            </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setLandmarks(PoseTemplates.human.contrapposto.landmarks)}
+            >
+              Contrapposto (Classical)
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="panel-section">
         <h3>Landmarks</h3>
         <p className="hint">{anatomyMode === 'human' ? 'Start with Crown + Chin' : 'Start with Skull + Withers'}</p>
