@@ -18,6 +18,11 @@ export class Vec3 {
     return new Vec3(this.x - v.x, this.y - v.y, this.z - v.z);
   }
 
+  // Alias for compatibility
+  subtract(v) {
+    return this.sub(v);
+  }
+
   scale(s) {
     return new Vec3(this.x * s, this.y * s, this.z * s);
   }

@@ -215,12 +215,48 @@ export default function App() {
     }
 
     // Select form
-    if (activeTab === '3d-forms' && !placingForm) {
-      // Check if clicked on any form
-      // TODO: Implement proper hit testing
-      setSelectedForm(null);
+    if (activeTab === '3d-forms' && !placingForm && perspectiveSystem) {
+      // Check if clicked on any form using hit testing
+      let clickedFormIndex = null;
+      let nearestDepth = Infinity;
+
+      forms.forEach((form, index) => {
+        const vertices = form.getTransformedVertices();
+        const projected = vertices.map(v => perspectiveSystem.project(v));
+
+        // Calculate 2D bounding box
+        const validPoints = projected.filter(p => p.visible);
+        if (validPoints.length === 0) return;
+
+        const bounds = {
+          minX: Math.min(...validPoints.map(p => p.x)),
+          maxX: Math.max(...validPoints.map(p => p.x)),
+          minY: Math.min(...validPoints.map(p => p.y)),
+          maxY: Math.max(...validPoints.map(p => p.y))
+        };
+
+        // Add padding for easier clicking
+        const padding = 20;
+        bounds.minX -= padding;
+        bounds.maxX += padding;
+        bounds.minY -= padding;
+        bounds.maxY += padding;
+
+        // Check if click is within bounds
+        if (pt.x >= bounds.minX && pt.x <= bounds.maxX &&
+            pt.y >= bounds.minY && pt.y <= bounds.maxY) {
+          // Check depth to select nearest form
+          const depth = form.position.z;
+          if (depth < nearestDepth) {
+            nearestDepth = depth;
+            clickedFormIndex = index;
+          }
+        }
+      });
+
+      setSelectedForm(clickedFormIndex);
     }
-  }, [placingForm, formType, perspectiveSystem, canvasSize, editingLandmark, editingVP, placingFocal, forms.length, activeTab, getPoint]);
+  }, [placingForm, formType, perspectiveSystem, canvasSize, editingLandmark, editingVP, placingFocal, forms, activeTab, getPoint]);
 
   // Handle mouse down
   const handleMouseDown = useCallback((e) => {
