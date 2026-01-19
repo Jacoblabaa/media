@@ -637,6 +637,18 @@ export default function App() {
       drawAnatomy(octx, width, height);
     }
 
+    // Draw gesture line (always render if exists)
+    if (showGesture && gestureLine.length > 1) {
+      octx.strokeStyle = 'rgba(255, 80, 80, 0.9)';
+      octx.lineWidth = 4;
+      octx.lineCap = 'round';
+      octx.lineJoin = 'round';
+      octx.beginPath();
+      octx.moveTo(gestureLine[0].x, gestureLine[0].y);
+      gestureLine.forEach(p => octx.lineTo(p.x, p.y));
+      octx.stroke();
+    }
+
     // Draw composition overlays (always render if enabled)
     if (compOverlay !== 'none' || showGoldenSpiral || focalPoints.length > 0) {
       drawComposition(octx, width, height);
@@ -778,6 +790,7 @@ export default function App() {
 
     formsToRender.forEach(({ form, index }) => {
       const isSelected = index === selectedForm;
+      const isBooleanSelected = booleanSelection.includes(index);
       const transformed = form.getTransformedVertices();
 
       // Project vertices
@@ -785,7 +798,11 @@ export default function App() {
 
       // Draw faces (if defined)
       if (form.faces && form.faces.length > 0 && showConstruction) {
-        ctx.fillStyle = isSelected ? 'rgba(100, 150, 255, 0.1)' : 'rgba(150, 150, 150, 0.05)';
+        let fillColor = 'rgba(150, 150, 150, 0.05)';
+        if (isSelected) fillColor = 'rgba(100, 150, 255, 0.15)';
+        if (isBooleanSelected) fillColor = 'rgba(255, 150, 100, 0.15)';
+
+        ctx.fillStyle = fillColor;
         form.faces.forEach(face => {
           ctx.beginPath();
           ctx.moveTo(projected[face[0]].x, projected[face[0]].y);
@@ -797,9 +814,20 @@ export default function App() {
         });
       }
 
-      // Draw edges (curved for fisheye)
-      ctx.strokeStyle = isSelected ? '#00ffff' : '#ffffff';
-      ctx.lineWidth = isSelected ? 3 : 2;
+      // Draw edges (curved for fisheye) with clear selection indicators
+      let strokeColor = '#ffffff';
+      let lineWidth = 2;
+
+      if (isSelected) {
+        strokeColor = '#00ffff';
+        lineWidth = 4;
+      } else if (isBooleanSelected) {
+        strokeColor = '#ffaa00';
+        lineWidth = 3;
+      }
+
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = lineWidth;
 
       const useCurvedEdges = perspectiveType === 'fisheye';
 
