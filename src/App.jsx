@@ -124,6 +124,21 @@ export default function App() {
     setPerspectiveSystem(ps);
   }, [perspectiveType, canvasSize, horizonY, vanishingPoints]);
 
+  // TEST: Add a default form on first load to verify rendering works
+  useEffect(() => {
+    if (forms.length === 0 && perspectiveSystem) {
+      const testCube = new Primitive3D(
+        'cube',
+        new Vec3(0, 0, 300),
+        new Vec3(0, 0, 0),
+        new Vec3(1, 1, 1)
+      );
+      testCube.id = Date.now();
+      console.log('TEST: Adding default cube for verification. Vertices:', testCube.vertices.length);
+      setForms([testCube]);
+    }
+  }, [perspectiveSystem]); // Only run when perspective system initializes
+
   // Sync gizmo mode with manipulation mode
   useEffect(() => {
     if (gizmoRef.current) {
@@ -951,25 +966,36 @@ export default function App() {
 
     // Draw skeleton
     if (showSkeleton) {
-      ctx.strokeStyle = 'rgba(0, 255, 200, 0.9)';
-      ctx.lineWidth = 3;
       ctx.lineCap = 'round';
 
       if (anatomyMode === 'human') {
         // Spine
+        const spineKeys = ['crown', 'chin', 'c7', 'sternumBottom'];
         const spine = [];
-        if (landmarks.crown) spine.push(landmarks.crown);
-        if (landmarks.chin) spine.push(landmarks.chin);
-        if (landmarks.c7) spine.push(landmarks.c7);
+        spineKeys.forEach(key => {
+          if (landmarks[key]) {
+            const proj = projectLandmark(landmarks[key]);
+            if (proj) spine.push(proj);
+          }
+        });
+
+        // Add shoulder center
         if (landmarks.shoulderL && landmarks.shoulderR) {
-          spine.push(AnatomyUtils.midpoint(landmarks.shoulderL, landmarks.shoulderR));
+          const mid = AnatomyUtils.midpoint(landmarks.shoulderL, landmarks.shoulderR);
+          const proj = projectLandmark(mid);
+          if (proj) spine.push(proj);
         }
-        if (landmarks.sternumBottom) spine.push(landmarks.sternumBottom);
+
+        // Add hip center
         if (landmarks.hipL && landmarks.hipR) {
-          spine.push(AnatomyUtils.midpoint(landmarks.hipL, landmarks.hipR));
+          const mid = AnatomyUtils.midpoint(landmarks.hipL, landmarks.hipR);
+          const proj = projectLandmark(mid);
+          if (proj) spine.push(proj);
         }
 
         if (spine.length > 1) {
+          ctx.strokeStyle = 'rgba(0, 255, 200, 0.9)';
+          ctx.lineWidth = 3 * spine[0].scale;
           ctx.beginPath();
           ctx.moveTo(spine[0].x, spine[0].y);
           spine.forEach(p => ctx.lineTo(p.x, p.y));
@@ -978,42 +1004,66 @@ export default function App() {
 
         // Shoulder line
         if (landmarks.shoulderL && landmarks.shoulderR) {
-          ctx.beginPath();
-          ctx.moveTo(landmarks.shoulderL.x, landmarks.shoulderL.y);
-          ctx.lineTo(landmarks.shoulderR.x, landmarks.shoulderR.y);
-          ctx.stroke();
+          const pL = projectLandmark(landmarks.shoulderL);
+          const pR = projectLandmark(landmarks.shoulderR);
+          if (pL && pR) {
+            ctx.strokeStyle = 'rgba(0, 255, 200, 0.9)';
+            ctx.lineWidth = 3 * pL.scale;
+            ctx.beginPath();
+            ctx.moveTo(pL.x, pL.y);
+            ctx.lineTo(pR.x, pR.y);
+            ctx.stroke();
+          }
         }
 
         // Hip line
         if (landmarks.hipL && landmarks.hipR) {
-          ctx.beginPath();
-          ctx.moveTo(landmarks.hipL.x, landmarks.hipL.y);
-          ctx.lineTo(landmarks.hipR.x, landmarks.hipR.y);
-          ctx.stroke();
+          const pL = projectLandmark(landmarks.hipL);
+          const pR = projectLandmark(landmarks.hipR);
+          if (pL && pR) {
+            ctx.strokeStyle = 'rgba(0, 255, 200, 0.9)';
+            ctx.lineWidth = 3 * pL.scale;
+            ctx.beginPath();
+            ctx.moveTo(pL.x, pL.y);
+            ctx.lineTo(pR.x, pR.y);
+            ctx.stroke();
+          }
         }
 
         // Limbs
-        ctx.lineWidth = 2.5;
         currentSegments.forEach(seg => {
           if (landmarks[seg.from] && landmarks[seg.to]) {
-            ctx.beginPath();
-            ctx.moveTo(landmarks[seg.from].x, landmarks[seg.from].y);
-            ctx.lineTo(landmarks[seg.to].x, landmarks[seg.to].y);
-            ctx.stroke();
+            const p1 = projectLandmark(landmarks[seg.from]);
+            const p2 = projectLandmark(landmarks[seg.to]);
+            if (p1 && p2) {
+              const avgScale = (p1.scale + p2.scale) / 2;
+              const avgDepth = ((landmarks[seg.from].z || 300) + (landmarks[seg.to].z || 300)) / 2;
+              const depthAlpha = Math.max(0.3, Math.min(1.0, 1.0 - (avgDepth - 200) / 400));
+
+              ctx.strokeStyle = `rgba(0, 255, 200, ${depthAlpha * 0.9})`;
+              ctx.lineWidth = 2.5 * avgScale;
+              ctx.beginPath();
+              ctx.moveTo(p1.x, p1.y);
+              ctx.lineTo(p2.x, p2.y);
+              ctx.stroke();
+            }
           }
         });
       } else {
         // Quadruped skeleton
         // Spine
+        const spineKeys = ['skull', 'c1', 'withers', 'midBack', 'croup', 'tailBase'];
         const spine = [];
-        if (landmarks.skull) spine.push(landmarks.skull);
-        if (landmarks.c1) spine.push(landmarks.c1);
-        if (landmarks.withers) spine.push(landmarks.withers);
-        if (landmarks.midBack) spine.push(landmarks.midBack);
-        if (landmarks.croup) spine.push(landmarks.croup);
-        if (landmarks.tailBase) spine.push(landmarks.tailBase);
+        spineKeys.forEach(key => {
+          if (landmarks[key]) {
+            const proj = projectLandmark(landmarks[key]);
+            if (proj) spine.push(proj);
+          }
+        });
 
         if (spine.length > 1) {
+          ctx.strokeStyle = 'rgba(0, 255, 200, 0.9)';
+          ctx.lineWidth = 3 * spine[0].scale;
           ctx.beginPath();
           ctx.moveTo(spine[0].x, spine[0].y);
           spine.forEach(p => ctx.lineTo(p.x, p.y));
@@ -1021,13 +1071,22 @@ export default function App() {
         }
 
         // Legs
-        ctx.lineWidth = 2.5;
         currentSegments.forEach(seg => {
           if (landmarks[seg.from] && landmarks[seg.to]) {
-            ctx.beginPath();
-            ctx.moveTo(landmarks[seg.from].x, landmarks[seg.from].y);
-            ctx.lineTo(landmarks[seg.to].x, landmarks[seg.to].y);
-            ctx.stroke();
+            const p1 = projectLandmark(landmarks[seg.from]);
+            const p2 = projectLandmark(landmarks[seg.to]);
+            if (p1 && p2) {
+              const avgScale = (p1.scale + p2.scale) / 2;
+              const avgDepth = ((landmarks[seg.from].z || 300) + (landmarks[seg.to].z || 300)) / 2;
+              const depthAlpha = Math.max(0.3, Math.min(1.0, 1.0 - (avgDepth - 200) / 400));
+
+              ctx.strokeStyle = `rgba(0, 255, 200, ${depthAlpha * 0.9})`;
+              ctx.lineWidth = 2.5 * avgScale;
+              ctx.beginPath();
+              ctx.moveTo(p1.x, p1.y);
+              ctx.lineTo(p2.x, p2.y);
+              ctx.stroke();
+            }
           }
         });
       }
@@ -1035,19 +1094,25 @@ export default function App() {
 
     // Draw masses
     if (showMasses) {
-      ctx.fillStyle = 'rgba(150, 200, 255, 0.15)';
-      ctx.strokeStyle = 'rgba(150, 200, 255, 0.7)';
-      ctx.lineWidth = 2;
-
       // For each limb segment with both endpoints
       currentSegments.forEach(seg => {
         if (!landmarks[seg.from] || !landmarks[seg.to]) return;
 
-        const p1 = landmarks[seg.from];
-        const p2 = landmarks[seg.to];
+        const p1 = projectLandmark(landmarks[seg.from]);
+        const p2 = projectLandmark(landmarks[seg.to]);
+        if (!p1 || !p2) return;
+
+        const avgScale = (p1.scale + p2.scale) / 2;
+        const avgDepth = ((landmarks[seg.from].z || 300) + (landmarks[seg.to].z || 300)) / 2;
+        const depthAlpha = Math.max(0.2, Math.min(0.8, 1.0 - (avgDepth - 200) / 400));
+
+        ctx.fillStyle = `rgba(150, 200, 255, ${depthAlpha * 0.15})`;
+        ctx.strokeStyle = `rgba(150, 200, 255, ${depthAlpha * 0.7})`;
+        ctx.lineWidth = 2 * avgScale;
+
         const angle = AnatomyUtils.angle(p1, p2);
         const perpAngle = angle + Math.PI / 2;
-        const width = refUnit * (seg.thickness || 0.2);
+        const width = refUnit * (seg.thickness || 0.2) * avgScale;
         const width2 = width * 0.8;
 
         // Draw tapered cylinder
