@@ -64,6 +64,7 @@ export default function App() {
   const [horizonY, setHorizonY] = useState(400);
   const [perspectiveLines, setPerspectiveLines] = useState([]);
   const [drawingPerspLine, setDrawingPerspLine] = useState(null);
+  const [fisheyeStrength, setFisheyeStrength] = useState(3.0);
 
   // Found Perspective
   const foundPerspectiveRef = useRef(new FoundPerspective());
@@ -121,8 +122,9 @@ export default function App() {
     const ps = new PerspectiveSystem(perspectiveType, canvasSize.width, canvasSize.height);
     ps.setHorizon(horizonY);
     ps.setVanishingPoints(vanishingPoints);
+    ps.fisheyeStrength = fisheyeStrength; // Set curvilinear distortion strength
     setPerspectiveSystem(ps);
-  }, [perspectiveType, canvasSize, horizonY, vanishingPoints]);
+  }, [perspectiveType, canvasSize, horizonY, vanishingPoints, fisheyeStrength]);
 
   // TEST: Add a default form on first load to verify rendering works
   useEffect(() => {
@@ -708,17 +710,41 @@ export default function App() {
         });
       }
 
-      // Draw edges
+      // Draw edges (curved for fisheye)
       ctx.strokeStyle = isSelected ? '#00ffff' : '#ffffff';
       ctx.lineWidth = isSelected ? 3 : 2;
+
+      const useCurvedEdges = perspectiveType === 'fisheye';
+
       form.edges.forEach(([i1, i2]) => {
-        const p1 = projected[i1];
-        const p2 = projected[i2];
-        if (p1.visible && p2.visible) {
-          ctx.beginPath();
-          ctx.moveTo(p1.x, p1.y);
-          ctx.lineTo(p2.x, p2.y);
-          ctx.stroke();
+        if (useCurvedEdges) {
+          // Subdivide edge for visible curvature
+          const curvedPoints = perspectiveSystem.subdivideCurvedEdge(
+            transformed[i1],
+            transformed[i2],
+            12 // More segments = smoother curve
+          );
+
+          if (curvedPoints.length > 0 && curvedPoints[0].visible) {
+            ctx.beginPath();
+            ctx.moveTo(curvedPoints[0].x, curvedPoints[0].y);
+            for (let i = 1; i < curvedPoints.length; i++) {
+              if (curvedPoints[i].visible) {
+                ctx.lineTo(curvedPoints[i].x, curvedPoints[i].y);
+              }
+            }
+            ctx.stroke();
+          }
+        } else {
+          // Straight edges for linear perspective
+          const p1 = projected[i1];
+          const p2 = projected[i2];
+          if (p1.visible && p2.visible) {
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.stroke();
+          }
         }
       });
 
@@ -1567,6 +1593,8 @@ export default function App() {
                 canvasHeight={canvasSize.height}
                 perspectiveLines={perspectiveLines}
                 setPerspectiveLines={setPerspectiveLines}
+                fisheyeStrength={fisheyeStrength}
+                setFisheyeStrength={setFisheyeStrength}
               />
             )}
 
@@ -1916,7 +1944,7 @@ function Forms3DPanel({ formType, setFormType, placingForm, setPlacingForm, form
   );
 }
 
-function PerspectivePanel({ perspectiveType, setPerspectiveType, editingVP, setEditingVP, vanishingPoints, setVanishingPoints, showPerspectiveGrid, setShowPerspectiveGrid, gridDensity, setGridDensity, horizonY, setHorizonY, canvasHeight, perspectiveLines, setPerspectiveLines }) {
+function PerspectivePanel({ perspectiveType, setPerspectiveType, editingVP, setEditingVP, vanishingPoints, setVanishingPoints, showPerspectiveGrid, setShowPerspectiveGrid, gridDensity, setGridDensity, horizonY, setHorizonY, canvasHeight, perspectiveLines, setPerspectiveLines, fisheyeStrength, setFisheyeStrength }) {
   return (
     <div className="panel">
       <div className="panel-section">
@@ -1927,9 +1955,28 @@ function PerspectivePanel({ perspectiveType, setPerspectiveType, editingVP, setE
           <option value="3pt">3-Point</option>
           <option value="4pt">4-Point</option>
           <option value="5pt">5-Point</option>
-          <option value="fisheye">Fisheye</option>
+          <option value="fisheye">Fisheye / Curvilinear</option>
         </select>
       </div>
+
+      {perspectiveType === 'fisheye' && (
+        <div className="panel-section">
+          <h3>Curvilinear Distortion</h3>
+          <input
+            type="range"
+            min="0.5"
+            max="6.0"
+            step="0.1"
+            value={fisheyeStrength}
+            onChange={e => setFisheyeStrength(+e.target.value)}
+            className="slider"
+          />
+          <span className="slider-value">{fisheyeStrength.toFixed(1)} (Subtle → Extreme)</span>
+          <div style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>
+            Higher values create more dramatic curvature in forms
+          </div>
+        </div>
+      )}
 
       <div className="panel-section">
         <h3>Vanishing Points</h3>

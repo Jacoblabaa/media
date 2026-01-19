@@ -305,8 +305,8 @@ export class PerspectiveSystem {
     const r = Math.sqrt(point3d.x * point3d.x + point3d.y * point3d.y);
     const theta = Math.atan2(point3d.y, point3d.x);
 
-    // Apply barrel distortion
-    const distortion = 1.3;
+    // Apply dramatic barrel distortion
+    const distortion = this.fisheyeStrength || 3.0; // Much stronger default
     const rDistorted = r * (1 + (r * r) / (d * d) * distortion);
 
     return {
@@ -315,6 +315,24 @@ export class PerspectiveSystem {
       scale: d / (d + point3d.z),
       visible: point3d.z > -d
     };
+  }
+
+  /**
+   * Subdivide an edge for curved rendering (fisheye mode)
+   * Returns array of projected points along the curve
+   */
+  subdivideCurvedEdge(v1, v2, segments = 8) {
+    const points = [];
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      const interpolated = new Vec3(
+        v1.x + (v2.x - v1.x) * t,
+        v1.y + (v2.y - v1.y) * t,
+        v1.z + (v2.z - v1.z) * t
+      );
+      points.push(this.project(interpolated));
+    }
+    return points;
   }
 
   /**
