@@ -507,7 +507,28 @@ export default function App() {
     setGizmoDragStart(null);
 
     if (drawingPerspLine && MathUtils.distance2D(drawingPerspLine.start, drawingPerspLine.end) > 15) {
-      setPerspectiveLines(prev => [...prev, { ...drawingPerspLine, id: Date.now() }]);
+      const newLine = { ...drawingPerspLine, id: Date.now() };
+      setPerspectiveLines(prev => [...prev, newLine]);
+
+      // If in Found Perspective mode, add to detection system
+      if (foundPerspectiveMode && foundPerspectiveRef.current) {
+        foundPerspectiveRef.current.addLine(drawingPerspLine.start, drawingPerspLine.end);
+        // Auto-detect vanishing points
+        const detectedVPs = foundPerspectiveRef.current.detectVanishingPoints(50);
+        console.log('Detected VPs:', detectedVPs);
+        // Convert detected VPs to vanishing points for display
+        if (detectedVPs.length > 0) {
+          const colors = ['#ff5555', '#55ff55', '#5555ff', '#ffff55', '#ff55ff'];
+          const newVPs = detectedVPs.map((vp, i) => ({
+            id: `detected-${Date.now()}-${i}`,
+            x: vp.x,
+            y: vp.y,
+            color: colors[i % colors.length],
+            confidence: vp.confidence
+          }));
+          setVanishingPoints(newVPs);
+        }
+      }
     }
     setDrawingPerspLine(null);
 
@@ -515,7 +536,7 @@ export default function App() {
       setMeasurements(prev => [...prev, { ...currentMeasure, id: Date.now() }]);
     }
     setCurrentMeasure(null);
-  }, [drawingPerspLine, currentMeasure]);
+  }, [drawingPerspLine, currentMeasure, foundPerspectiveMode]);
 
   // Foreshortening controls
   const toggleForeshorten = (limbId, toward) => {
@@ -1595,6 +1616,9 @@ export default function App() {
                 setPerspectiveLines={setPerspectiveLines}
                 fisheyeStrength={fisheyeStrength}
                 setFisheyeStrength={setFisheyeStrength}
+                foundPerspectiveMode={foundPerspectiveMode}
+                setFoundPerspectiveMode={setFoundPerspectiveMode}
+                foundPerspectiveRef={foundPerspectiveRef}
               />
             )}
 
@@ -1944,7 +1968,7 @@ function Forms3DPanel({ formType, setFormType, placingForm, setPlacingForm, form
   );
 }
 
-function PerspectivePanel({ perspectiveType, setPerspectiveType, editingVP, setEditingVP, vanishingPoints, setVanishingPoints, showPerspectiveGrid, setShowPerspectiveGrid, gridDensity, setGridDensity, horizonY, setHorizonY, canvasHeight, perspectiveLines, setPerspectiveLines, fisheyeStrength, setFisheyeStrength }) {
+function PerspectivePanel({ perspectiveType, setPerspectiveType, editingVP, setEditingVP, vanishingPoints, setVanishingPoints, showPerspectiveGrid, setShowPerspectiveGrid, gridDensity, setGridDensity, horizonY, setHorizonY, canvasHeight, perspectiveLines, setPerspectiveLines, fisheyeStrength, setFisheyeStrength, foundPerspectiveMode, setFoundPerspectiveMode, foundPerspectiveRef }) {
   return (
     <div className="panel">
       <div className="panel-section">
@@ -1977,6 +2001,39 @@ function PerspectivePanel({ perspectiveType, setPerspectiveType, editingVP, setE
           </div>
         </div>
       )}
+
+      <div className="panel-section">
+        <h3>Found Perspective</h3>
+        <p style={{ fontSize: '11px', color: '#aaa', marginBottom: '8px' }}>
+          Draw parallel lines in your reference to auto-detect vanishing points
+        </p>
+        <button
+          className={`btn btn-primary ${foundPerspectiveMode ? 'btn-active' : ''}`}
+          onClick={() => setFoundPerspectiveMode(!foundPerspectiveMode)}
+        >
+          {foundPerspectiveMode ? '✓ Drawing Lines...' : 'Enable Found Perspective'}
+        </button>
+        {perspectiveLines.length > 0 && (
+          <div style={{ marginTop: '8px' }}>
+            <div style={{ fontSize: '11px', color: '#888' }}>
+              {perspectiveLines.length} line{perspectiveLines.length !== 1 ? 's' : ''} drawn
+            </div>
+            <button
+              className="btn btn-danger btn-sm"
+              onClick={() => {
+                setPerspectiveLines([]);
+                if (foundPerspectiveRef.current) {
+                  foundPerspectiveRef.current.clear();
+                }
+                setVanishingPoints([]);
+              }}
+              style={{ marginTop: '4px' }}
+            >
+              Clear Lines & VPs
+            </button>
+          </div>
+        )}
+      </div>
 
       <div className="panel-section">
         <h3>Vanishing Points</h3>
