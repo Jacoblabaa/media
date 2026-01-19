@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Vec3, Matrix4, PerspectiveSystem, Primitive3D, MathUtils } from './utils/math3d.js';
 import { Gizmo3D } from './utils/gizmo3d.js';
 import { IntersectionDetector, DepthSorter } from './utils/intersections.js';
+import { FoundPerspective, ColorExtractor, PoseTemplates } from './systems/imageAnalysis.js';
 import { getContextualTip, getRandomTip } from './systems/educational.js';
 import {
   HumanLandmarks,
@@ -63,6 +64,17 @@ export default function App() {
   const [horizonY, setHorizonY] = useState(400);
   const [perspectiveLines, setPerspectiveLines] = useState([]);
   const [drawingPerspLine, setDrawingPerspLine] = useState(null);
+
+  // Found Perspective
+  const foundPerspectiveRef = useRef(new FoundPerspective());
+  const [foundPerspectiveMode, setFoundPerspectiveMode] = useState(false);
+  const [foundPerspectiveDrawing, setFoundPerspectiveDrawing] = useState(null);
+
+  // Image Analysis
+  const [colorPalette, setColorPalette] = useState([]);
+  const [showColorPalette, setShowColorPalette] = useState(false);
+  const [imageAnalysis, setImageAnalysis] = useState(null);
+  const [showImageAnalysis, setShowImageAnalysis] = useState(false);
 
   // Anatomy
   const [anatomyMode, setAnatomyMode] = useState('human'); // 'human', 'quadruped'
