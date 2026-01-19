@@ -1073,11 +1073,12 @@ export default function App() {
       // Landmarks are already in world coordinates, just project them
       const vec3 = new Vec3(pt.x, pt.y, pt.z);
       const projected = perspectiveSystem.project(vec3);
-      return projected.visible ? {
+      // Always return projection even if not "visible" - landmarks should always show
+      return {
         x: projected.x,
         y: projected.y,
         scale: projected.scale || 1
-      } : null;
+      };
     }
 
     // Otherwise use 2D coordinates directly (legacy 2D mode)
@@ -1095,8 +1096,10 @@ export default function App() {
 
     if (!hasMinimum) {
       // Just draw placed landmarks
+      console.log('Drawing landmarks without minimum:', Object.keys(landmarks));
       Object.entries(landmarks).forEach(([key, pt]) => {
         const projected = projectLandmark(pt);
+        console.log(`Landmark ${key}:`, pt, '-> projected:', projected);
         if (!projected) return;
 
         const cfg = currentLandmarks.find(l => l.key === key);
