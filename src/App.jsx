@@ -277,9 +277,13 @@ export default function App() {
 
     // Placing landmark
     if (editingLandmark) {
+      // Convert screen coordinates to world coordinates for proper 3D placement
+      const worldX = pt.x - canvasSize.width / 2;
+      const worldY = -(pt.y - canvasSize.height / 2); // Flip Y for 3D space
+
       setLandmarks(prev => ({
         ...prev,
-        [editingLandmark]: { x: pt.x, y: pt.y, z: landmarkDepth }
+        [editingLandmark]: { x: worldX, y: worldY, z: landmarkDepth }
       }));
       setEditingLandmark(null);
       return;
@@ -1057,11 +1061,8 @@ export default function App() {
 
     // If landmark has depth and perspective system exists, project it
     if (pt.z !== undefined && perspectiveSystem) {
-      const vec3 = new Vec3(
-        pt.x - canvasSize.width / 2,
-        pt.y - canvasSize.height / 2,
-        pt.z
-      );
+      // Landmarks are already in world coordinates, just project them
+      const vec3 = new Vec3(pt.x, pt.y, pt.z);
       const projected = perspectiveSystem.project(vec3);
       return projected.visible ? {
         x: projected.x,
@@ -1070,7 +1071,7 @@ export default function App() {
       } : null;
     }
 
-    // Otherwise use 2D coordinates directly
+    // Otherwise use 2D coordinates directly (legacy 2D mode)
     return { x: pt.x, y: pt.y, scale: 1 };
   };
 
