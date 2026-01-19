@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Artist's 3D Toolkit - Test</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: sans-serif;
+      background: #0a0a0a;
+      color: white;
+      padding: 20px;
+    }
+    h1 { margin-bottom: 20px; }
+    .error { color: #ff4444; padding: 10px; background: #330000; border: 1px solid #ff4444; margin: 10px 0; }
+    .success { color: #00ff88; padding: 10px; background: #003300; border: 1px solid #00ff88; margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <h1>Artist's 3D Toolkit - Diagnostic</h1>
+  <div id="status">Checking...</div>
+  <div id="root"></div>
+  
+  <script>
+    const status = document.getElementById('status');
+    
+    // Test 1: Basic JS works
+    status.innerHTML = '<div class="success">✓ JavaScript is running</div>';
+    
+    // Test 2: Can we load the built files?
+    const testScript = document.createElement('script');
+    testScript.type = 'module';
+    testScript.src = './dist/assets/index-BkwiJHr5.js';
+    
+    testScript.onerror = (e) => {
+      status.innerHTML += '<div class="error">✗ Failed to load main JavaScript file. This usually means:<br>1. Files are not in correct location<br>2. Browser blocks file:// module loading<br><br><b>Solution:</b> Use a web server or open from localhost</div>';
+    };
+    
+    testScript.onload = () => {
+      status.innerHTML += '<div class="success">✓ JavaScript file loaded</div>';
+      setTimeout(() => {
+        const root = document.getElementById('root');
+        if (root.children.length === 0) {
+          status.innerHTML += '<div class="error">✗ React app did not render. Check browser console for errors (F12)</div>';
+        } else {
+          status.innerHTML += '<div class="success">✓ App loaded successfully!</div>';
+        }
+      }, 1000);
+    };
+    
+    document.head.appendChild(testScript);
+    
+    // Also load CSS
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = './dist/assets/index-BOz6WsTd.css';
+    document.head.appendChild(link);
+  </script>
+</body>
+</html>
