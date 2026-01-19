@@ -127,8 +127,9 @@ export default function App() {
     ps.setHorizon(horizonY);
     ps.setVanishingPoints(vanishingPoints);
     ps.fisheyeStrength = fisheyeStrength; // Set curvilinear distortion strength
+    ps.distanceToCanvas = cameraDistance; // Set camera distance for zoom
     setPerspectiveSystem(ps);
-  }, [perspectiveType, canvasSize, horizonY, vanishingPoints, fisheyeStrength]);
+  }, [perspectiveType, canvasSize, horizonY, vanishingPoints, fisheyeStrength, cameraDistance]);
 
   // TEST: Add a default form on first load to verify rendering works
   useEffect(() => {
@@ -605,6 +606,14 @@ export default function App() {
       [limbId]: { ...prev[limbId], amount }
     }));
   };
+
+  // Mouse wheel for camera zoom
+  const handleWheel = useCallback((e) => {
+    e.preventDefault();
+    const zoomSensitivity = 0.5;
+    const delta = e.deltaY * zoomSensitivity;
+    setCameraDistance(prev => Math.max(100, Math.min(2000, prev + delta)));
+  }, []);
 
   // Main render effect
   useEffect(() => {
@@ -2051,6 +2060,8 @@ export default function App() {
                 foundPerspectiveMode={foundPerspectiveMode}
                 setFoundPerspectiveMode={setFoundPerspectiveMode}
                 foundPerspectiveRef={foundPerspectiveRef}
+                cameraDistance={cameraDistance}
+                setCameraDistance={setCameraDistance}
               />
             )}
 
@@ -2136,6 +2147,7 @@ export default function App() {
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
               onMouseLeave={handleMouseUp}
+              onWheel={handleWheel}
             />
             {!image && useBlankCanvas && (
               <div className="canvas-hint">
@@ -2449,7 +2461,7 @@ function Forms3DPanel({ formType, setFormType, placingForm, setPlacingForm, form
   );
 }
 
-function PerspectivePanel({ perspectiveType, setPerspectiveType, editingVP, setEditingVP, vanishingPoints, setVanishingPoints, showPerspectiveGrid, setShowPerspectiveGrid, gridDensity, setGridDensity, horizonY, setHorizonY, canvasHeight, perspectiveLines, setPerspectiveLines, fisheyeStrength, setFisheyeStrength, foundPerspectiveMode, setFoundPerspectiveMode, foundPerspectiveRef }) {
+function PerspectivePanel({ perspectiveType, setPerspectiveType, editingVP, setEditingVP, vanishingPoints, setVanishingPoints, showPerspectiveGrid, setShowPerspectiveGrid, gridDensity, setGridDensity, horizonY, setHorizonY, canvasHeight, perspectiveLines, setPerspectiveLines, fisheyeStrength, setFisheyeStrength, foundPerspectiveMode, setFoundPerspectiveMode, foundPerspectiveRef, cameraDistance, setCameraDistance }) {
   return (
     <div className="panel">
       <div className="panel-section">
@@ -2462,6 +2474,32 @@ function PerspectivePanel({ perspectiveType, setPerspectiveType, editingVP, setE
           <option value="5pt">5-Point</option>
           <option value="fisheye">Fisheye / Curvilinear</option>
         </select>
+      </div>
+
+      <div className="panel-section">
+        <h3>Camera</h3>
+        <div style={{ fontSize: '11px', color: '#aaa', marginBottom: '8px' }}>
+          Use mouse wheel to zoom
+        </div>
+        <label className="slider-label">
+          Zoom Distance
+          <input
+            type="range"
+            min="100"
+            max="2000"
+            step="50"
+            value={cameraDistance}
+            onChange={e => setCameraDistance(parseInt(e.target.value))}
+            className="slider"
+          />
+          <span>{cameraDistance}</span>
+        </label>
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={() => setCameraDistance(500)}
+        >
+          Reset Camera
+        </button>
       </div>
 
       {perspectiveType === 'fisheye' && (
