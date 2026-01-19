@@ -96,6 +96,8 @@ export default function App() {
   const [isDrawingGesture, setIsDrawingGesture] = useState(false);
   const [showGesture, setShowGesture] = useState(true);
   const [proportionSystem, setProportionSystem] = useState('8-head-heroic');
+  const [autoGenerateForms, setAutoGenerateForms] = useState(true); // Auto-build forms from landmarks
+  const [landmarkForms, setLandmarkForms] = useState([]); // Forms generated from landmarks
 
   // Composition
   const [compOverlay, setCompOverlay] = useState('none');
@@ -623,6 +625,58 @@ export default function App() {
     setCameraDistance(prev => Math.max(100, Math.min(2000, prev + delta)));
   }, []);
 
+  // Generate forms from landmark connections
+  useEffect(() => {
+    if (!autoGenerateForms || Object.keys(landmarks).length < 2) {
+      setLandmarkForms([]);
+      return;
+    }
+
+    const currentSegments = anatomyMode === 'human' ? HumanLimbSegments : QuadrupedLimbSegments;
+    const generatedForms = [];
+
+    currentSegments.forEach(seg => {
+      const p1 = landmarks[seg.from];
+      const p2 = landmarks[seg.to];
+
+      if (p1 && p2) {
+        // Calculate position (midpoint) and scale based on segment
+        const midpoint = new Vec3(
+          (p1.x + p2.x) / 2,
+          (p1.y + p2.y) / 2,
+          (p1.z + p2.z) / 2
+        );
+
+        // Calculate distance for length
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const dz = p2.z - p1.z;
+        const length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+        // Calculate rotation to align with segment direction
+        const angleY = Math.atan2(dx, dz);
+        const angleX = Math.atan2(-dy, Math.sqrt(dx * dx + dz * dz));
+
+        // Create capsule form for this segment
+        const form = new Primitive3D(
+          'capsule',
+          midpoint,
+          new Vec3(angleX, angleY, 0),
+          new Vec3(
+            (seg.thickness || 0.2) * 40, // Width
+            length / 2, // Height (capsule is vertical, so this stretches it)
+            (seg.thickness || 0.2) * 40  // Depth
+          )
+        );
+        form.id = `landmark-form-${seg.id}`;
+        form.landmarkSegment = seg.id;
+        generatedForms.push(form);
+      }
+    });
+
+    setLandmarkForms(generatedForms);
+  }, [landmarks, anatomyMode, autoGenerateForms]);
+
   // Main render effect
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -803,15 +857,19 @@ export default function App() {
       }
     }
 
+    // Combine regular forms with landmark-generated forms
+    const allForms = [...forms, ...landmarkForms];
+
     // Depth sort forms for proper occlusion
     const cameraPos = new Vec3(0, 0, -cameraDistance);
     const formsToRender = useDepthSorting
-      ? DepthSorter.sortByDepth(forms, cameraPos)
-      : forms.map((form, index) => ({ form, index }));
+      ? DepthSorter.sortByDepth(allForms, cameraPos)
+      : allForms.map((form, index) => ({ form, index }));
 
     formsToRender.forEach(({ form, index }) => {
-      const isSelected = index === selectedForm;
-      const isBooleanSelected = booleanSelection.includes(index);
+      const isLandmarkForm = form.landmarkSegment !== undefined;
+      const isSelected = index === selectedForm && !isLandmarkForm; // Can't select landmark forms
+      const isBooleanSelected = booleanSelection.includes(index) && !isLandmarkForm;
       const transformed = form.getTransformedVertices();
 
       // Project vertices
@@ -820,6 +878,7 @@ export default function App() {
       // Draw faces (if defined)
       if (form.faces && form.faces.length > 0 && showConstruction) {
         let fillColor = 'rgba(150, 150, 150, 0.05)';
+        if (isLandmarkForm) fillColor = 'rgba(100, 255, 200, 0.15)'; // Cyan for landmark forms
         if (isSelected) fillColor = 'rgba(100, 150, 255, 0.15)';
         if (isBooleanSelected) fillColor = 'rgba(255, 150, 100, 0.15)';
 
@@ -839,7 +898,10 @@ export default function App() {
       let strokeColor = '#ffffff';
       let lineWidth = 2;
 
-      if (isSelected) {
+      if (isLandmarkForm) {
+        strokeColor = '#00ffaa'; // Cyan for landmark forms
+        lineWidth = 2;
+      } else if (isSelected) {
         strokeColor = '#00ffff';
         lineWidth = 4;
       } else if (isBooleanSelected) {
@@ -2106,6 +2168,8 @@ export default function App() {
                 analysisNotes={analysisNotes}
                 proportionSystem={proportionSystem}
                 setProportionSystem={setProportionSystem}
+                autoGenerateForms={autoGenerateForms}
+                setAutoGenerateForms={setAutoGenerateForms}
               />
             )}
 
@@ -2633,7 +2697,7 @@ function PerspectivePanel({ perspectiveType, setPerspectiveType, editingVP, setE
   );
 }
 
-function AnatomyPanel({ anatomyMode, setAnatomyMode, quadrupedType, setQuadrupedType, landmarks, setLandmarks, editingLandmark, setEditingLandmark, landmarkDepth, setLandmarkDepth, showSkeleton, setShowSkeleton, showMasses, setShowMasses, showProportions, setShowProportions, showCrossSections, setShowCrossSections, showGesture, setShowGesture, gestureLine, setGestureLine, foreshortening, toggleForeshorten, setForeshortenAmount, analysisNotes, proportionSystem, setProportionSystem }) {
+function AnatomyPanel({ anatomyMode, setAnatomyMode, quadrupedType, setQuadrupedType, landmarks, setLandmarks, editingLandmark, setEditingLandmark, landmarkDepth, setLandmarkDepth, showSkeleton, setShowSkeleton, showMasses, setShowMasses, showProportions, setShowProportions, showCrossSections, setShowCrossSections, showGesture, setShowGesture, gestureLine, setGestureLine, foreshortening, toggleForeshorten, setForeshortenAmount, analysisNotes, proportionSystem, setProportionSystem, autoGenerateForms, setAutoGenerateForms }) {
   const currentLandmarks = anatomyMode === 'human' ? HumanLandmarks : QuadrupedLandmarks;
   const currentSegments = anatomyMode === 'human' ? HumanLimbSegments : QuadrupedLimbSegments;
   const availableLimbs = currentSegments.filter(seg => landmarks[seg.from] && landmarks[seg.to]);
@@ -2784,6 +2848,13 @@ function AnatomyPanel({ anatomyMode, setAnatomyMode, quadrupedType, setQuadruped
           <input type="checkbox" checked={showGesture} onChange={e => setShowGesture(e.target.checked)} />
           Gesture Line
         </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={autoGenerateForms} onChange={e => setAutoGenerateForms(e.target.checked)} />
+          Auto-Generate 3D Forms
+        </label>
+        <div style={{ fontSize: '11px', color: '#aaa', marginTop: '4px', marginBottom: '8px' }}>
+          Automatically builds capsule forms between connected landmarks
+        </div>
         {gestureLine.length > 0 && (
           <button className="btn btn-danger btn-sm" onClick={() => setGestureLine([])}>Clear Gesture</button>
         )}
