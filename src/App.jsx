@@ -406,20 +406,21 @@ export default function App() {
           setForms(prev => prev.map((f, i) => {
             if (i !== selectedForm) return f;
 
+            // Mutate directly - DO NOT SPREAD (preserves class methods)
             if (manipulationMode === 'move') {
-              return { ...f, position: f.position.add(delta) };
+              f.position = f.position.add(delta);
             } else if (manipulationMode === 'rotate') {
-              return { ...f, rotation: new Vec3(
+              f.rotation = new Vec3(
                 f.rotation.x + delta.x,
                 f.rotation.y + delta.y,
                 f.rotation.z + delta.z
-              )};
+              );
             } else if (manipulationMode === 'scale') {
-              return { ...f, scale: new Vec3(
+              f.scale = new Vec3(
                 f.scale.x * delta.x,
                 f.scale.y * delta.y,
                 f.scale.z * delta.z
-              )};
+              );
             }
             return f;
           }));
