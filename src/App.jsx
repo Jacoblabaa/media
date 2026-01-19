@@ -207,7 +207,8 @@ export default function App() {
         new Vec3(0, 0, 0),
         new Vec3(1, 1, 1)
       );
-      setForms(prev => [...prev, { ...newForm, id: Date.now() }]);
+      newForm.id = Date.now(); // Add ID without spreading (preserves methods)
+      setForms(prev => [...prev, newForm]);
       setPlacingForm(false);
       setSelectedForm(forms.length);
       return;
