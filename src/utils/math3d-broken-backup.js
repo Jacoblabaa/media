@@ -1,6 +1,7 @@
 /**
- * FIXED 3D Mathematics for Artist's Toolkit
- * Properly implements perspective projection with real vanishing point convergence
+ * 3D Mathematics for Artist's Toolkit
+ * Implements perspective projection, rotations, and transformations
+ * Based on classical drawing perspective mathematics
  */
 
 export class Vec3 {
@@ -139,55 +140,22 @@ export class Matrix4 {
 }
 
 /**
- * FIXED Perspective Projection System
- * Now actually converges to vanishing points!
+ * Perspective Projection Systems
  */
 export class PerspectiveSystem {
   constructor(type, canvasWidth, canvasHeight) {
-    this.type = type;
+    this.type = type; // '1pt', '2pt', '3pt', '4pt', '5pt', 'fisheye'
     this.width = canvasWidth;
     this.height = canvasHeight;
     this.vanishingPoints = [];
     this.horizonY = canvasHeight / 2;
     this.stationPoint = { x: canvasWidth / 2, y: canvasHeight / 2 };
-    this.fov = 60;
-    this.distanceToCanvas = 500;
-
-    // Initialize default vanishing points based on type
-    this.initializeDefaultVPs();
-  }
-
-  initializeDefaultVPs() {
-    // Set sensible defaults so projection works immediately
-    switch (this.type) {
-      case '1pt':
-        this.vanishingPoints = [{ x: this.width / 2, y: this.horizonY, color: '#ff5555' }];
-        break;
-      case '2pt':
-        this.vanishingPoints = [
-          { x: this.width * 0.15, y: this.horizonY, color: '#ff5555' },
-          { x: this.width * 0.85, y: this.horizonY, color: '#55ff55' }
-        ];
-        break;
-      case '3pt':
-        this.vanishingPoints = [
-          { x: this.width * 0.15, y: this.horizonY, color: '#ff5555' },
-          { x: this.width * 0.85, y: this.horizonY, color: '#55ff55' },
-          { x: this.width / 2, y: this.height * 0.1, color: '#5555ff' }
-        ];
-        break;
-      default:
-        this.vanishingPoints = [
-          { x: this.width * 0.2, y: this.horizonY, color: '#ff5555' },
-          { x: this.width * 0.8, y: this.horizonY, color: '#55ff55' }
-        ];
-    }
+    this.fov = 60; // Field of view in degrees
+    this.distanceToCanvas = 500; // Distance from viewer to canvas
   }
 
   setVanishingPoints(points) {
-    if (points && points.length > 0) {
-      this.vanishingPoints = points;
-    }
+    this.vanishingPoints = points;
   }
 
   setHorizon(y) {
@@ -195,7 +163,7 @@ export class PerspectiveSystem {
   }
 
   /**
-   * Main projection function - routes to correct perspective type
+   * Project 3D point to 2D canvas using current perspective system
    */
   project(point3d) {
     switch (this.type) {
@@ -208,92 +176,91 @@ export class PerspectiveSystem {
       case 'fisheye':
         return this.projectFisheye(point3d);
       default:
-        return this.project2Point(point3d);
+        return this.projectPerspective(point3d);
     }
   }
 
   /**
-   * FIXED 1-Point Perspective - All parallel lines converge to center VP
+   * Standard perspective projection (camera-based)
    */
-  project1Point(point3d) {
-    const vp = this.vanishingPoints[0] || { x: this.width / 2, y: this.horizonY };
+  projectPerspective(point3d) {
+    const fovRad = (this.fov * Math.PI) / 180;
+    const d = this.distanceToCanvas;
 
-    // Depth ratio (0 = at viewer, 1 = at infinity)
-    const depthRatio = 1 - (this.distanceToCanvas / (this.distanceToCanvas + point3d.z));
-
-    // Converge toward vanishing point based on depth
-    const x = this.stationPoint.x + point3d.x + (vp.x - (this.stationPoint.x + point3d.x)) * depthRatio;
-    const y = this.stationPoint.y - point3d.y + (vp.y - (this.stationPoint.y - point3d.y)) * depthRatio;
+    // Simple perspective divide
+    const scale = d / (d + point3d.z);
 
     return {
-      x: x,
-      y: y,
-      scale: 1 - depthRatio,
-      visible: point3d.z > -this.distanceToCanvas
+      x: this.stationPoint.x + point3d.x * scale,
+      y: this.stationPoint.y - point3d.y * scale,
+      scale: scale,
+      visible: point3d.z > -d
     };
   }
 
   /**
-   * FIXED 2-Point Perspective - Horizontal lines converge to left/right VPs
+   * One-point perspective
+   */
+  project1Point(point3d) {
+    const vp = this.vanishingPoints[0] || { x: this.width / 2, y: this.horizonY };
+    const d = this.distanceToCanvas;
+
+    // Z goes toward vanishing point
+    const scale = d / (d + point3d.z);
+    const dx = (point3d.x - vp.x) * scale + vp.x;
+    const dy = point3d.y - (point3d.y - this.horizonY) * (1 - scale);
+
+    return {
+      x: this.stationPoint.x + point3d.x * scale,
+      y: dy,
+      scale: scale,
+      visible: point3d.z > -d
+    };
+  }
+
+  /**
+   * Two-point perspective
    */
   project2Point(point3d) {
     const vp1 = this.vanishingPoints[0] || { x: this.width * 0.2, y: this.horizonY };
     const vp2 = this.vanishingPoints[1] || { x: this.width * 0.8, y: this.horizonY };
 
-    // Depth ratio
-    const depthRatio = 1 - (this.distanceToCanvas / (this.distanceToCanvas + point3d.z));
+    const d = this.distanceToCanvas;
+    const scale = d / (d + point3d.z);
 
-    // Determine which VP to converge toward based on X position relative to center
-    const centerX = this.stationPoint.x + point3d.x;
-    const t = (centerX - vp1.x) / (vp2.x - vp1.x);
-
-    // Choose primary VP (left for negative X, right for positive X)
-    const targetVP = point3d.x < 0 ? vp1 : vp2;
-
-    // Converge toward chosen VP
-    const x = centerX + (targetVP.x - centerX) * depthRatio;
-
-    // Y converges toward horizon
-    const y = this.stationPoint.y - point3d.y + (this.horizonY - (this.stationPoint.y - point3d.y)) * depthRatio;
+    // Interpolate between vanishing points based on X position
+    const t = (point3d.x + this.width / 2) / this.width;
+    const vpX = vp1.x * (1 - t) + vp2.x * t;
 
     return {
-      x: x,
-      y: y,
-      scale: 1 - depthRatio,
-      visible: point3d.z > -this.distanceToCanvas
+      x: this.stationPoint.x + point3d.x * scale,
+      y: this.stationPoint.y - point3d.y * scale,
+      scale: scale,
+      visible: point3d.z > -d
     };
   }
 
   /**
-   * FIXED 3-Point Perspective - Adds vertical VP for looking up/down
+   * Three-point perspective (adds vertical vanishing point)
    */
   project3Point(point3d) {
-    const vp1 = this.vanishingPoints[0] || { x: this.width * 0.2, y: this.horizonY };
-    const vp2 = this.vanishingPoints[1] || { x: this.width * 0.8, y: this.horizonY };
-    const vp3 = this.vanishingPoints[2] || { x: this.width / 2, y: this.height * 0.1 };
+    const d = this.distanceToCanvas;
+    const scale = d / (d + point3d.z);
 
-    // Depth ratio
-    const depthRatio = 1 - (this.distanceToCanvas / (this.distanceToCanvas + point3d.z));
-
-    // Horizontal convergence (like 2-point)
-    const centerX = this.stationPoint.x + point3d.x;
-    const targetVPH = point3d.x < 0 ? vp1 : vp2;
-    const x = centerX + (targetVPH.x - centerX) * depthRatio;
-
-    // Vertical convergence toward 3rd VP
-    const centerY = this.stationPoint.y - point3d.y;
-    const y = centerY + (vp3.y - centerY) * depthRatio;
+    // Add vertical convergence
+    const vp3 = this.vanishingPoints[2] || { x: this.width / 2, y: -this.height };
+    const verticalScale = 1 + (point3d.y / this.height) * 0.3;
 
     return {
-      x: x,
-      y: y,
-      scale: 1 - depthRatio,
-      visible: point3d.z > -this.distanceToCanvas
+      x: this.stationPoint.x + point3d.x * scale,
+      y: this.stationPoint.y - point3d.y * scale * verticalScale,
+      scale: scale,
+      visible: point3d.z > -d
     };
   }
 
   /**
-   * Fisheye/Curvilinear Perspective
+   * Fisheye/curvilinear perspective
    */
   projectFisheye(point3d) {
     const d = this.distanceToCanvas;
@@ -313,11 +280,11 @@ export class PerspectiveSystem {
   }
 
   /**
-   * Generate perspective grid
+   * Generate grid lines for current perspective
    */
-  generateGrid(spacing = 100, depth = 1500) {
+  generateGrid(spacing = 100, depth = 1000) {
     const lines = [];
-    const gridSize = 8;
+    const gridSize = 10;
 
     for (let i = -gridSize; i <= gridSize; i++) {
       // Lines going into depth (Z direction)
@@ -328,7 +295,7 @@ export class PerspectiveSystem {
       }
       if (lineZ.length > 1) lines.push({ points: lineZ, type: 'depth' });
 
-      // Lines going across (X direction) - floor grid
+      // Lines going across (X direction)
       const lineX = [];
       for (let x = -gridSize * spacing; x <= gridSize * spacing; x += spacing) {
         const p = this.project(new Vec3(x, 0, i * spacing));
@@ -342,11 +309,11 @@ export class PerspectiveSystem {
 }
 
 /**
- * 3D Primitive Shapes - Same as before
+ * 3D Primitive Shapes
  */
 export class Primitive3D {
   constructor(type, position = new Vec3(), rotation = new Vec3(), scale = new Vec3(1, 1, 1)) {
-    this.type = type;
+    this.type = type; // 'cube', 'sphere', 'cylinder', 'cone', 'pyramid'
     this.position = position;
     this.rotation = rotation;
     this.scale = scale;
@@ -383,9 +350,9 @@ export class Primitive3D {
       new Vec3(-s, -s, s), new Vec3(s, -s, s), new Vec3(s, s, s), new Vec3(-s, s, s)
     ];
     this.edges = [
-      [0, 1], [1, 2], [2, 3], [3, 0],
-      [4, 5], [5, 6], [6, 7], [7, 4],
-      [0, 4], [1, 5], [2, 6], [3, 7]
+      [0, 1], [1, 2], [2, 3], [3, 0], // Back face
+      [4, 5], [5, 6], [6, 7], [7, 4], // Front face
+      [0, 4], [1, 5], [2, 6], [3, 7]  // Connecting edges
     ];
     this.faces = [
       [0, 1, 2, 3], [4, 5, 6, 7], [0, 1, 5, 4],
@@ -393,7 +360,7 @@ export class Primitive3D {
     ];
   }
 
-  generateSphere(segments = 12) {
+  generateSphere(segments = 16) {
     this.vertices = [];
     this.edges = [];
 
@@ -415,6 +382,7 @@ export class Primitive3D {
       }
     }
 
+    // Generate edges for latitude and longitude lines
     for (let lat = 0; lat < segments; lat++) {
       for (let lon = 0; lon < segments; lon++) {
         const first = lat * (segments + 1) + lon;
@@ -432,6 +400,7 @@ export class Primitive3D {
     const height = 100;
     const radius = 40;
 
+    // Top circle
     for (let i = 0; i <= segments; i++) {
       const angle = (i * 2 * Math.PI) / segments;
       this.vertices.push(new Vec3(
@@ -441,6 +410,7 @@ export class Primitive3D {
       ));
     }
 
+    // Bottom circle
     for (let i = 0; i <= segments; i++) {
       const angle = (i * 2 * Math.PI) / segments;
       this.vertices.push(new Vec3(
@@ -450,10 +420,11 @@ export class Primitive3D {
       ));
     }
 
+    // Edges
     for (let i = 0; i < segments; i++) {
-      this.edges.push([i, i + 1]);
-      this.edges.push([i + segments + 1, i + segments + 2]);
-      this.edges.push([i, i + segments + 1]);
+      this.edges.push([i, i + 1]); // Top circle
+      this.edges.push([i + segments + 1, i + segments + 2]); // Bottom circle
+      this.edges.push([i, i + segments + 1]); // Vertical edges
     }
   }
 
@@ -463,8 +434,10 @@ export class Primitive3D {
     const height = 100;
     const radius = 50;
 
+    // Apex
     this.vertices.push(new Vec3(0, height / 2, 0));
 
+    // Base circle
     for (let i = 0; i <= segments; i++) {
       const angle = (i * 2 * Math.PI) / segments;
       this.vertices.push(new Vec3(
@@ -474,9 +447,10 @@ export class Primitive3D {
       ));
     }
 
+    // Edges
     for (let i = 1; i <= segments; i++) {
-      this.edges.push([0, i]);
-      this.edges.push([i, i + 1]);
+      this.edges.push([0, i]); // From apex to base
+      this.edges.push([i, i + 1]); // Base circle
     }
   }
 
@@ -484,7 +458,7 @@ export class Primitive3D {
     const s = 50;
     const h = 70;
     this.vertices = [
-      new Vec3(0, h, 0),
+      new Vec3(0, h, 0), // Apex
       new Vec3(-s, -h, -s), new Vec3(s, -h, -s),
       new Vec3(s, -h, s), new Vec3(-s, -h, s)
     ];
@@ -517,8 +491,12 @@ export class Primitive3D {
 export const MathUtils = {
   degToRad: (deg) => (deg * Math.PI) / 180,
   radToDeg: (rad) => (rad * 180) / Math.PI,
+
   clamp: (value, min, max) => Math.max(min, Math.min(max, value)),
+
   lerp: (a, b, t) => a + (b - a) * t,
+
   distance2D: (p1, p2) => Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2),
+
   angle2D: (p1, p2) => Math.atan2(p2.y - p1.y, p2.x - p1.x),
 };
